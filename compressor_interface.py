@@ -6,5 +6,5 @@ class CompressorInterface:
     def __init__(self):
         pass
 
-    def compress_embedding(self, embedding):
-        raise NotImplementedError("compress_embedding method must be implemented by subclass")
+    def compress_history(self, history):
+        raise NotImplementedError("compress_history method must be implemented by subclass")

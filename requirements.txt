@@ -1,3 +1,4 @@
 vec2text
 torch
 sentence-transformers
+python-dotenv
