@@ -37,12 +37,23 @@ def fake_pipeline(*args, **kwargs):
     return FakeSummarizer()
 
 
+class FakeAutoTokenizer:
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        return cls()
+
+    def encode(self, text, add_special_tokens=False):
+        del add_special_tokens
+        return text.split()
+
+
 def import_compressor_with_fakes():
     fake_sentence_transformers = types.ModuleType("sentence_transformers")
     fake_sentence_transformers.SentenceTransformer = FakeSentenceTransformer
 
     fake_transformers = types.ModuleType("transformers")
     fake_transformers.pipeline = fake_pipeline
+    fake_transformers.AutoTokenizer = FakeAutoTokenizer
 
     sys.modules["sentence_transformers"] = fake_sentence_transformers
     sys.modules["transformers"] = fake_transformers
@@ -57,13 +68,13 @@ class CompressorTests(unittest.TestCase):
         self.compressor = import_compressor_with_fakes()
 
     def test_returns_empty_string_for_empty_messages(self):
-        result = self.compressor.compress([], target_count=2)
+        result = self.compressor.compress([], max_tokens=20)
         self.assertEqual(result, "")
         self.assertEqual(SUMMARY_INPUTS, [])
 
     def test_raises_for_invalid_lambda(self):
         with self.assertRaises(ValueError):
-            self.compressor.compress([{"role": "user", "content": "hello"}], 1, lambda_mmr=1.5)
+            self.compressor.compress([{"role": "user", "content": "hello"}], 20, lambda_mmr=1.5)
 
     def test_mmr_selection_restores_original_order_before_bart(self):
         messages = [
@@ -80,12 +91,32 @@ class CompressorTests(unittest.TestCase):
             }
         )
 
-        result = self.compressor.compress(messages, target_count=2, lambda_mmr=1.0)
+        result = self.compressor.compress(messages, max_tokens=4, lambda_mmr=1.0)
 
         self.assertEqual(len(SUMMARY_INPUTS), 1)
         # If order is restored after MMR, selected [2,0] becomes [0,2].
         self.assertEqual(SUMMARY_INPUTS[0], "User: m0 Assistant: m2")
         self.assertEqual(result, "SUMMARY::User: m0 Assistant: m2")
+
+    def test_mmr_stops_when_next_candidate_would_exceed_max_tokens(self):
+        messages = [
+            {"role": "user", "content": "m0"},
+            {"role": "assistant", "content": "m1"},
+            {"role": "assistant", "content": "m2"},
+        ]
+        EMBEDDING_MAP.update(
+            {
+                "m0": [1.0, 0.0],
+                "m1": [0.0, 1.0],
+                "m2": [1.0, 1.0],
+            }
+        )
+
+        # One message is 2 tokens ("User: m0"), two messages would be 4 tokens.
+        result = self.compressor.compress(messages, max_tokens=2, lambda_mmr=1.0)
+
+        self.assertEqual(SUMMARY_INPUTS[0], "Assistant: m2")
+        self.assertEqual(result, "SUMMARY::Assistant: m2")
 
 
 if __name__ == "__main__":

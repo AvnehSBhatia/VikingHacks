@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from transformers import pipeline
+from transformers import AutoTokenizer, pipeline
 
 # Import the shared interface module so this compressor module stays aligned
 # with the project's compression interface layer.
@@ -61,8 +61,21 @@ def _build_pipeline(task: str | None):
     return pipeline(task, model="facebook/bart-large-cnn")
 
 
+def _init_bart_tokenizer():
+    """Initialize BART tokenizer with token compatibility across versions."""
+    if _HF_TOKEN:
+        try:
+            return AutoTokenizer.from_pretrained("facebook/bart-large-cnn", token=_HF_TOKEN)
+        except TypeError:
+            return AutoTokenizer.from_pretrained(
+                "facebook/bart-large-cnn", use_auth_token=_HF_TOKEN
+            )
+    return AutoTokenizer.from_pretrained("facebook/bart-large-cnn")
+
+
 # Load models once at module import time.
 _EMBED_MODEL = _init_embed_model()
+_BART_TOKENIZER = _init_bart_tokenizer()
 
 
 def _init_summarizer():
@@ -88,25 +101,46 @@ def _init_summarizer():
 _SUMMARIZER = _init_summarizer()
 
 
-def compress(messages: list[dict], target_count: int, lambda_mmr: float = 0.5) -> str:
+def _format_message(message: dict) -> str:
+    """Format one message with a role prefix for BART input."""
+    role = str(message.get("role", "unknown")).strip().capitalize()
+    content = str(message.get("content", "")).strip()
+    return f"{role}: {content}"
+
+
+def _build_bart_input(messages: list[dict], selected_indices: list[int]) -> str:
+    """Build ordered role-prefixed text chunk for summarization."""
+    ordered_chunks = [_format_message(messages[idx]) for idx in sorted(selected_indices)]
+    return " ".join(ordered_chunks)
+
+
+def _token_count(text: str) -> int:
+    """Count input tokens using the BART tokenizer."""
+    if not text:
+        return 0
+    tokens = _BART_TOKENIZER.encode(text, add_special_tokens=False)
+    return len(tokens)
+
+
+def compress(messages: list[dict], max_tokens: int = 800, lambda_mmr: float = 0.5) -> str:
     """Compress conversation history via sliding-window scoring, MMR, and BART.
 
     Inputs:
         messages: list[dict] where each item includes role (str) and content (str).
-        target_count: number of messages MMR should select before summarization.
+        max_tokens: max BART input tokens allowed for selected messages (default 800).
         lambda_mmr: relevance/diversity tradeoff for MMR (default 0.5).
     Output:
         compressed_text: single fluent paragraph summary string.
 
     Stages:
         1) Sliding Window Scoring: local relevance from avg cosine similarity to neighbors.
-        2) MMR Selection: select diverse-yet-relevant messages using numpy implementation.
+        2) MMR Selection: iteratively select diverse-yet-relevant messages until token ceiling.
         3) BART Summarization: summarize ordered selected messages with facebook/bart-large-cnn.
     """
     if not messages:
         return ""
 
-    if target_count <= 0:
+    if max_tokens <= 0:
         return ""
 
     if not 0.0 <= lambda_mmr <= 1.0:
@@ -131,12 +165,11 @@ def compress(messages: list[dict], target_count: int, lambda_mmr: float = 0.5) -
             similarities.append(sim)
         window_scores.append(float(np.mean(similarities)) if similarities else 0.0)
 
-    # Stage 2: run MMR selection from scratch (numpy-only math, no MMR library).
-    k = min(target_count, len(messages))
+    # Stage 2: run MMR selection from scratch until max_tokens is reached.
     remaining = list(range(len(messages)))
     selected: list[int] = []
 
-    while remaining and len(selected) < k:
+    while remaining:
         best_idx = None
         best_score = -float("inf")
 
@@ -161,19 +194,28 @@ def compress(messages: list[dict], target_count: int, lambda_mmr: float = 0.5) -
                 best_score = mmr_score
                 best_idx = candidate
 
-        selected.append(best_idx)
-        remaining.remove(best_idx)
+        # Add candidates while token budget allows; force first selection if needed.
+        candidate_selected = selected + [best_idx]
+        candidate_text = _build_bart_input(messages, candidate_selected)
+        candidate_tokens = _token_count(candidate_text)
+
+        if candidate_tokens <= max_tokens or not selected:
+            selected.append(best_idx)
+            remaining.remove(best_idx)
+            if candidate_tokens >= max_tokens:
+                break
+            continue
+
+        # Stop once adding the next best candidate would exceed the token ceiling.
+        break
 
     # Restore original conversational order for final summarization input.
     selected.sort()
+    if not selected:
+        return ""
 
     # Stage 3: build role-prefixed text and summarize with BART.
-    ordered_chunks = []
-    for idx in selected:
-        role = str(messages[idx].get("role", "unknown")).strip().capitalize()
-        content = str(messages[idx].get("content", "")).strip()
-        ordered_chunks.append(f"{role}: {content}")
-    bart_input = " ".join(ordered_chunks)
+    bart_input = _build_bart_input(messages, selected)
 
     summary = _SUMMARIZER(bart_input)
     first = summary[0] if isinstance(summary, list) else summary
