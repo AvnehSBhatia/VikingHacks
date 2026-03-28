@@ -27,6 +27,23 @@ def get_corrector():
         _CORRECTOR = vec2text.load_pretrained_corrector("gtr-base")
     return _CORRECTOR
 
+def text_to_embedding(text: str) -> torch.Tensor:
+    """
+    Converts text into the specific, unnormalized GTR-base embedding format 
+    that vec2text expects for inversion. (Safe drop-in replacement for SentenceTransformer)
+    """
+    corrector = get_corrector()
+    inputs = corrector.embedder_tokenizer(
+        [text], return_tensors="pt", max_length=128, truncation=True, padding="max_length"
+    )
+    
+    with torch.no_grad():
+        vector = corrector.inversion_trainer.call_embedding_model(
+            input_ids=inputs.input_ids.to(corrector.model.device),
+            attention_mask=inputs.attention_mask.to(corrector.model.device),
+        )
+    return vector
+
 def embedding_to_text(embedding: torch.Tensor, num_steps: int = 20) -> str:
     """
     Converts a given vector embedding back into text using vec2text.
@@ -52,3 +69,4 @@ def embedding_to_text(embedding: torch.Tensor, num_steps: int = 20) -> str:
         )
     
     return result[0]
+
