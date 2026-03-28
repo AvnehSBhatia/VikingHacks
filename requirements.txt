@@ -1,0 +1,3 @@
+vec2text
+torch
+sentence-transformers
