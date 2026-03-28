@@ -9,122 +9,86 @@ from transformers import T5ForConditionalGeneration, T5Tokenizer
 from transformers.modeling_outputs import BaseModelOutput
 from sklearn.linear_model import Ridge
 
-# --- CONFIGURATION ---
-# Use 'mps' for Apple Silicon Metal acceleration
+# --- CONFIG ---
 DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
 BRIDGE_SAVE_PATH = "bge_to_t5_bridge.joblib"
-MODEL_NAME = "sentence-transformers/gtr-t5-large" # 1024-dim
-NUM_SAMPLES = 1200  # Balanced for speed and accuracy
-BATCH_SIZE = 16     # Optimized for Mac Unified Memory
+MODEL_NAME = "sentence-transformers/gtr-t5-large"
+NUM_SAMPLES = 1500  # More samples = better "accent"
+BATCH_SIZE = 16
 
-print(f"--- Running on Apple Silicon GPU ({DEVICE}) ---")
+print(f"--- Apple Silicon Recovery Mode ({DEVICE}) ---")
 
-# 1. LOAD MODELS
-# BGE-Large (Source)
+# 1. MODELS
 bge_model = SentenceTransformer('BAAI/bge-large-en-v1.5').to(DEVICE)
-
-# T5-Large (Decoder)
 tokenizer = T5Tokenizer.from_pretrained(MODEL_NAME)
 t5_model = T5ForConditionalGeneration.from_pretrained(
-    MODEL_NAME, 
-    torch_dtype=torch.float32, # float32 is more stable on MPS for T5
-    low_cpu_mem_usage=True
+    MODEL_NAME, torch_dtype=torch.float32
 ).to(DEVICE)
 t5_model.eval()
 
-# --- THE BRIDGE BUILDER ---
+# 2. BRIDGE
 def get_or_build_bridge():
     if os.path.exists(BRIDGE_SAVE_PATH):
-        print(f"✅ Loading existing bridge from {BRIDGE_SAVE_PATH}...")
         return joblib.load(BRIDGE_SAVE_PATH)
 
-    print(f"🚀 No bridge found. Calibrating {NUM_SAMPLES} samples (One-time process)...")
-    
-    # Load a small slice of Wikipedia for synthetic data
+    print(f"Calibrating Bridge...")
     dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train", trust_remote_code=True)
-    lines = [line.strip() for line in dataset['text'] if len(line.strip()) > 70][:NUM_SAMPLES]
+    lines = [line.strip() for line in dataset['text'] if len(line.strip()) > 80][:NUM_SAMPLES]
 
-    # Step 1: Encode BGE (Source)
-    print("\nStep 1/3: Encoding BGE Space...")
     x_bge = bge_model.encode(lines, batch_size=BATCH_SIZE, show_progress_bar=True)
-
-    # Step 2: Encode T5 (Target) with Progress Bar
-    print("\nStep 2/3: Encoding T5 Latent Space (This takes a moment)...")
     y_t5_list = []
     
-    # We use inference_mode for better speed on Mac
     with torch.inference_mode():
-        for i in tqdm(range(0, len(lines), BATCH_SIZE), desc="T5 Encoding Batches"):
+        for i in tqdm(range(0, len(lines), BATCH_SIZE), desc="T5 Encoding"):
             batch = lines[i : i + BATCH_SIZE]
             inputs = tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(DEVICE)
-            
-            # Extract the 'thought' vector from the T5 encoder
             outputs = t5_model.encoder(**inputs).last_hidden_state
+            y_t5_list.append(outputs.mean(dim=1).cpu().numpy())
             
-            # Mean pooling: [Batch, Tokens, 1024] -> [Batch, 1024]
-            # This prevents the 15GB memory buffer error
-            pooled = outputs.mean(dim=1).cpu().numpy()
-            y_t5_list.append(pooled)
-            
-            # Keep Metal memory clean
-            if DEVICE == "mps":
-                torch.mps.empty_cache()
-
     y_t5 = np.vstack(y_t5_list)
-
-    # Step 3: Solve the Map (Ridge Regression)
-    print("\nStep 3/3: Fitting Linear Mapper (CPU)...")
-    regr = Ridge(alpha=1.0)
+    regr = Ridge(alpha=0.1) # Lower alpha for a tighter fit
     regr.fit(x_bge, y_t5)
-    
     joblib.dump(regr, BRIDGE_SAVE_PATH)
-    print(f"Done! Bridge saved to {BRIDGE_SAVE_PATH}")
     return regr
 
-# Initialize or Load
 mapper = get_or_build_bridge()
 
-# --- THE INVERSION FUNCTION ---
+# 3. INVERSION
 def invert_embedding(bge_vector):
-    """
-    Reverse-engineers a BGE vector back into English text.
-    """
     if torch.is_tensor(bge_vector):
         bge_vector = bge_vector.detach().cpu().numpy()
-    if len(bge_vector.shape) == 1:
-        bge_vector = bge_vector.reshape(1, -1)
-
-    # A. Translate BGE math to T5 math using our Bridge
-    translated = mapper.predict(bge_vector)
-    translated_tensor = torch.from_numpy(translated).to(DEVICE)
     
-    # B. Inject into the T5 Decoder pipeline
-    translated_tensor = translated_tensor.unsqueeze(1) 
-    encoder_outputs = BaseModelOutput(last_hidden_state=translated_tensor)
+    # A. Map and Scale
+    translated = mapper.predict(bge_vector.reshape(1, -1))
+    # We scale by 10 to wake up the T5 attention layers
+    translated_tensor = torch.from_numpy(translated).to(DEVICE) * 10.0
+    
+    encoder_outputs = BaseModelOutput(last_hidden_state=translated_tensor.unsqueeze(1))
     start_id = t5_model.config.decoder_start_token_id or tokenizer.pad_token_id
 
-    # C. Autoregressive Generation
+    # B. Forced Generation
     with torch.inference_mode():
         output_ids = t5_model.generate(
             encoder_outputs=encoder_outputs,
             decoder_start_token_id=start_id,
-            max_new_tokens=80,
+            max_new_tokens=100,
+            min_new_tokens=10,       # FORCE IT TO TALK
             num_beams=5,
-            repetition_penalty=1.5,
-            early_stopping=True
+            no_repeat_ngram_size=3,  # Prevent word loops
+            repetition_penalty=2.5,  # Punish repetitive garbage
+            length_penalty=1.5,      # Reward longer sentences
+            early_stopping=True,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.pad_token_id
         )
     
     return tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
-# --- RUN TEST ---
 if __name__ == "__main__":
-    # Feel free to change this to any text you want to test
-    test_phrase = "Quantum computing relies on qubits to perform complex calculations."
+    test_phrase = "The artificial intelligence system decoded the hidden message successfully."
     print(f"\n[Original]: {test_phrase}")
-
-    # 1. Turn text into a vector
-    mystery_vector = bge_model.encode([test_phrase])
-
-    # 2. Turn vector back into text
-    result = invert_embedding(mystery_vector)
+    
+    vec = bge_model.encode([test_phrase])
+    result = invert_embedding(vec)
+    
     print(f"[Recovered]: {result}")
