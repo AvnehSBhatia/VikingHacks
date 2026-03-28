@@ -1,4 +1,12 @@
 vec2text
+openai>=1.0.0
 torch
 sentence-transformers
 python-dotenv
+transformers
+datasets
+numpy
+scikit-learn
+joblib
+tqdm
+pandas
