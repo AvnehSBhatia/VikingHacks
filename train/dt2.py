@@ -64,7 +64,7 @@ def run_inversion(input_text):
 
 # --- EXECUTION ---
 if __name__ == "__main__":
-    test_phrase = "Pictures of the genitalia were sent to the young woman without her consent."
+    test_phrase = "Pictures of the man were sent to his son."
     
     try:
         recovered = run_inversion(test_phrase)
