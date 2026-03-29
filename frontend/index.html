@@ -1,0 +1,1563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MemGuard — Memory Integrity for AI Agents</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module" src="https://unpkg.com/@splinetool/viewer@1.9.82/build/spline-viewer.js"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        brand: { DEFAULT: '#FFFFFF', dim: '#FFFFFF99', faint: '#FFFFFF22', dark: '#333333' },
+        surface: { base: '#0A0A0A', raised: '#111111', floating: '#1A1A1A', border: '#222222' },
+        drift: { safe: '#FFFFFF', warn: '#888888', danger: '#444444' },
+        accent: { red: '#FFFFFF', redDim: '#FFFFFF33' },
+      },
+      fontFamily: {
+        mono: ['Arial', 'sans-serif'],
+        sans: ['Arial', 'sans-serif'],
+        display: ['Arial', 'sans-serif'],
+      },
+    }
+  }
+}
+</script>
+<style>
+  /*
+   * CUSTOM CSS (not covered by Tailwind)
+   * Animations, chat bubbles, scrollbars, simulation-specific styles.
+   * All layout/spacing/color is Tailwind-first; these handle what Tailwind can't.
+   */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; background: #0A0A0A; }
+  body { background: #0A0A0A; color: #e5e5e5; overflow-x: hidden; font-family: Arial, sans-serif; }
+
+  /* Entrance animations */
+  .fade-up { opacity: 0; transform: translateY(32px); transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1); }
+  .fade-up.visible { opacity: 1; transform: translateY(0); }
+  .fade-up.delay-1 { transition-delay: 0.12s; }
+  .fade-up.delay-2 { transition-delay: 0.24s; }
+  .fade-up.delay-3 { transition-delay: 0.36s; }
+  .fade-up.delay-4 { transition-delay: 0.48s; }
+
+  /* Nav scroll state */
+  nav.scrolled { background: rgba(10,10,10,0.9); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid #222; }
+
+  /* Drift node */
+  .drift-node { transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+
+  /* Connecting line */
+  .connect-line { height: 2px; background: linear-gradient(90deg, #FFFFFF22, #FFFFFF, #FFFFFF22); }
+
+  /* Chat message animation */
+  .msg-enter { animation: msgSlide 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  @keyframes msgSlide { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Pipeline flash */
+  .pipeline-flash { animation: pflash 0.5s ease; }
+  @keyframes pflash { 0% { box-shadow: 0 0 0 0 #FFFFFF33; } 50% { box-shadow: 0 0 28px 6px #FFFFFF33; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+  /* Underline for drifted text */
+  .drift-mark { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; color: #888; }
+
+
+  /* Chat bubbles */
+  .bubble-user {
+    background: #111111;
+    border: 1px solid #222222;
+    border-radius: 0;
+    padding: 10px 14px;
+    max-width: 85%;
+    margin-left: auto;
+  }
+  .bubble-ai {
+    border-radius: 0;
+    padding: 10px 14px;
+    max-width: 85%;
+  }
+  .bubble-ai-red {
+    background: #181818;
+    border: 1px solid #252525;
+  }
+  .bubble-ai-green {
+    background: #181818;
+    border: 1px solid #252525;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 0; }
+
+  /* Chat column scroll */
+  .chat-scroll { max-height: 520px; overflow-y: auto; scroll-behavior: smooth; }
+  .chat-scroll::-webkit-scrollbar { width: 4px; }
+  .chat-scroll::-webkit-scrollbar-thumb { background: #222; border-radius: 0; }
+
+  /* Button states */
+  .ctrl-btn { transition: transform 0.15s, opacity 0.15s; }
+  .ctrl-btn:hover { transform: scale(1.04); }
+  .ctrl-btn:active { transform: scale(0.97); }
+  .ctrl-btn:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+
+  /* Stat card */
+  .stat-card { background: #111111; border: 1px solid #222222; border-radius: 0; padding: 20px; }
+
+  /* Mobile tabs */
+  .tab-btn { transition: color 0.2s, border-color 0.2s; }
+  .tab-btn.active-tab { color: #FFFFFF; border-bottom-color: #FFFFFF; }
+  .tab-btn:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+
+  /* Claim badge */
+  .badge-flag { background: #ffffff18; color: #888; font-size: 10px; padding: 2px 6px; border-radius: 0; font-family: Arial, sans-serif; }
+  .badge-pass { background: #FFFFFF18; color: #FFFFFF; font-size: 10px; padding: 2px 6px; border-radius: 0; font-family: Arial, sans-serif; }
+
+  /* Score color */
+  .score-good { color: #FFFFFF; }
+  .score-bad { color: #888; }
+
+  /* Pipeline step label */
+  .step-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #555; font-family: Arial, sans-serif; }
+
+  /* Summary card glow */
+  .summary-glow { box-shadow: 0 0 32px -8px #FFFFFF15, 0 4px 24px -4px rgba(0,0,0,0.5); }
+
+  /* Hero Spline: dim scene so UI reads clearly */
+  spline-viewer.hero-spline-dim { filter: brightness(0.52); }
+
+  /* Hide Spline watermark + hint */
+  spline-viewer::part(logo) { display: none !important; opacity: 0 !important; pointer-events: none !important; }
+  spline-viewer::part(hint) { display: none !important; opacity: 0 !important; }
+
+  @media (max-width: 768px) {
+    .chat-scroll { max-height: 400px; }
+  }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+</style>
+</head>
+<body>
+
+<!--
+  ========================================================================
+  HTML SECTIONS OVERVIEW (for agent indexing)
+  ========================================================================
+  1. NAV          — Fixed top navbar. Links: #how-it-works, #demo
+  2. HERO         — Full-viewport hero with Spline 3D background + typewriter heading
+  3. DRIFT ANIM   — 5-node text degradation visualization (id="drift", id="drift-nodes")
+  4. HOW IT WORKS — 3-column: Compress → Verify → Reconstruct (id="how-it-works")
+  5. DEMO         — Side-by-side 20-turn chat playback (id="demo")
+  6. SIM OVERLAY  — Hidden fullscreen Three.js vector simulation (id="sim-overlay")
+  7. FOOTER       — Brand name only
+  ========================================================================
+-->
+
+<!-- ============ NAV ============ -->
+<!-- Fixed top bar. Gains .scrolled class (blur + dark bg) after 40px scroll. -->
+<nav id="nav" class="fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-between px-6 transition-all duration-300" style="border-bottom: 1px solid transparent;">
+  <a href="#" class="font-mono font-bold text-brand tracking-tight text-lg">MemGuard</a>
+  <div class="flex items-center gap-6">
+    <a href="#how-it-works" class="text-sm text-neutral-400 hover:text-white transition-colors font-mono focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">How It Works</a>
+    <a href="#demo" class="text-sm text-neutral-400 hover:text-white transition-colors font-mono focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">Demo</a>
+  </div>
+</nav>
+
+<!-- ============ SECTION 1: HERO ============ -->
+<!-- Full-viewport hero section.
+     Background: Spline 3D scene (loaded via <spline-viewer>), masked with radial + linear gradients.
+     Content: typewriter heading (#hero-line1, #hero-line2), subtitle, prompt form → demo (#hero-prompt-form).
+     The Spline watermark is hidden via CSS (::part selectors) and JS (shadow DOM polling). -->
+<section class="relative min-h-screen flex flex-col items-center justify-center px-6 text-center overflow-hidden">
+  <!-- Spline 3D background -->
+  <div class="absolute inset-0 z-0">
+    <spline-viewer class="hero-spline-dim" url="https://prod.spline.design/HXwU35vsIyudBtIS/scene.splinecode" style="width:100%; height:100%;" loading="eager" hint="false" events-target="none"></spline-viewer>
+    <!-- Gradient fade: edges + bottom fade to page black -->
+    <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(ellipse 70% 60% at 50% 45%, transparent 20%, #0A0A0A 75%);"></div>
+    <div class="absolute bottom-0 left-0 right-0 h-[35%] pointer-events-none" style="background: linear-gradient(to top, #0A0A0A 0%, transparent 100%);"></div>
+    <div class="absolute top-0 left-0 right-0 h-[15%] pointer-events-none" style="background: linear-gradient(to bottom, #0A0A0A 0%, transparent 100%);"></div>
+    <!-- Cover watermark corner -->
+    <div class="absolute bottom-0 right-0 w-64 h-20 z-10" style="background: linear-gradient(to left, #0A0A0A 70%, transparent 100%);"></div>
+  </div>
+
+  <!-- Hero content (above spline) -->
+  <div class="relative z-10">
+    <p class="fade-up font-mono text-xs tracking-[0.2em] text-brand/70 mb-6 uppercase">Memory Integrity for AI Agents</p>
+    <h1 class="fade-up delay-1 font-display font-bold text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-[1.08] tracking-[-0.03em] text-white max-w-3xl" style="text-shadow: 0 2px 40px rgba(0,0,0,0.8);">
+<span id="hero-line1"></span><br><span id="hero-line2"></span>
+    </h1>
+    <p class="fade-up delay-2 font-sans text-base sm:text-lg text-neutral-400 max-w-xl mt-6 leading-[1.7] mx-auto" style="text-shadow: 0 1px 20px rgba(0,0,0,0.9);">
+      MemGuard compresses your context, audits its own output, and reconstructs clean&nbsp;&mdash; before hallucinations become memory.
+    </p>
+    <form id="hero-prompt-form" class="fade-up delay-3 mt-10 w-full max-w-xl mx-auto flex flex-col sm:flex-row gap-3 items-stretch sm:items-center" action="#" autocomplete="off">
+      <label for="hero-prompt-input" class="sr-only">Your prompt</label>
+      <input type="text" id="hero-prompt-input" name="prompt" placeholder="Type a prompt to run the side-by-side demo…" class="flex-1 min-w-0 px-4 py-3 bg-white text-neutral-900 placeholder:text-neutral-500 font-sans text-sm border border-white/90 focus:outline-none focus:ring-2 focus:ring-white/80 focus:ring-offset-2 focus:ring-offset-black/40" />
+      <button type="submit" class="shrink-0 px-6 py-3 bg-surface-raised border border-surface-border text-white font-mono text-sm hover:bg-surface-floating focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand transition-all duration-200 active:scale-[0.97]">
+        Send
+      </button>
+    </form>
+  </div>
+</section>
+
+<!-- ============ SECTION 2: DRIFT ANIMATION ============ -->
+<!-- Shows progressive fact degradation through 5 text nodes.
+     Nodes are generated by JS (buildDriftNodes) into #drift-nodes.
+     Auto-cycles when scrolled into view via IntersectionObserver.
+     id="drift" — anchor target from hero CTA button. -->
+<section id="drift" class="relative py-24 sm:py-32 px-6">
+  <div id="drift-container" class="max-w-4xl mx-auto">
+    <!-- Nodes rendered by JS -->
+    <div id="drift-nodes" class="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-0"></div>
+    <p class="text-center text-neutral-600 text-xs font-mono mt-8 tracking-wide">Each node = one compression cycle. Watch the fact mutate.</p>
+  </div>
+</section>
+
+<!-- ============ SECTION 3: HOW IT WORKS ============ -->
+<!-- 3-column grid: Compress → Verify → Reconstruct.
+     Each step has an icon (SVG), title, and description.
+     Connected by a horizontal gradient line on desktop (hidden on mobile).
+     id="how-it-works" — nav link target. -->
+<section id="how-it-works" class="relative py-24 sm:py-32 px-6">
+  <div class="max-w-4xl mx-auto">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-8 sm:gap-4 items-start relative">
+      <!-- Connecting line (desktop) -->
+      <div class="hidden sm:block absolute top-[52px] left-[16.67%] right-[16.67%] h-[2px]" style="background: linear-gradient(90deg, #FFFFFF15, #FFFFFF44, #FFFFFF15);"></div>
+
+      <!-- Compress -->
+      <div class="fade-up text-center relative z-10">
+        <div class="w-16 h-16 mx-auto mb-4 bg-surface-raised border border-surface-border flex items-center justify-center">
+          <svg width="28" height="28" fill="none" stroke="#FFFFFF" stroke-width="1.5" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/><path d="M19 4l-7 7-7-7" opacity="0.4"/></svg>
+        </div>
+        <h3 class="font-mono font-semibold text-white text-sm tracking-wide mb-2">Compress</h3>
+        <p class="text-neutral-500 text-sm leading-relaxed max-w-[200px] mx-auto">Summarize context when the window fills up. Standard LLM behavior.</p>
+      </div>
+
+      <!-- Verify -->
+      <div class="fade-up delay-1 text-center relative z-10">
+        <div class="w-16 h-16 mx-auto mb-4 bg-surface-raised border border-surface-border flex items-center justify-center">
+          <svg width="28" height="28" fill="none" stroke="#FFFFFF" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+        </div>
+        <h3 class="font-mono font-semibold text-white text-sm tracking-wide mb-2">Verify</h3>
+        <p class="text-neutral-500 text-sm leading-relaxed max-w-[200px] mx-auto">Extract claims, embed them, score against originals. Flag anything that drifted.</p>
+      </div>
+
+      <!-- Reconstruct -->
+      <div class="fade-up delay-2 text-center relative z-10">
+        <div class="w-16 h-16 mx-auto mb-4 bg-surface-raised border border-surface-border flex items-center justify-center">
+          <svg width="28" height="28" fill="none" stroke="#FFFFFF" stroke-width="1.5" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/><path d="M5 20l7-7 7 7" opacity="0.4"/></svg>
+        </div>
+        <h3 class="font-mono font-semibold text-white text-sm tracking-wide mb-2">Reconstruct</h3>
+        <p class="text-neutral-500 text-sm leading-relaxed max-w-[200px] mx-auto">Strip flagged claims, reconstruct clean. Zero hallucinations survive.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SECTION 4: DEMO ============ -->
+<!-- Side-by-side chat comparison: "Without MemGuard" vs "With MemGuard".
+     20-turn medical conversation driven by DEMO_DATA[] in JS.
+     Controls: Play All (auto 1800ms), Step (one turn), Reset.
+     Mobile: tab switcher shows one column at a time.
+     Each column scrolls independently (.chat-scroll, max-height 520px).
+     Compression events trigger pipeline animations in #pipeline-panel.
+     Demo ends with #demo-summary stats card.
+     id="demo" — nav link target. -->
+<section id="demo" class="relative py-24 sm:py-32 px-4 sm:px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-10">
+      <h2 class="fade-up font-display font-bold text-2xl sm:text-3xl text-white tracking-[-0.03em]">Side by Side</h2>
+      <p class="fade-up delay-1 text-neutral-500 text-sm font-mono mt-2">20-turn conversation. Same prompts. Different memory.</p>
+    </div>
+
+    <!-- Control bar -->
+    <div class="fade-up delay-2 flex items-center justify-center gap-3 mb-6">
+      <button onclick="demoPlayAll()" id="btn-play" class="ctrl-btn px-5 py-2 bg-brand text-surface-base font-mono text-sm font-semibold hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">Play All</button>
+      <button onclick="demoStep()" id="btn-step" class="ctrl-btn px-5 py-2 bg-surface-raised border border-surface-border text-white font-mono text-sm hover:bg-surface-floating focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">Step</button>
+      <button onclick="demoReset()" class="ctrl-btn px-5 py-2 bg-surface-raised border border-surface-border text-neutral-400 font-mono text-sm hover:text-white hover:bg-surface-floating focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">Reset</button>
+      <span id="turn-counter" class="font-mono text-xs text-neutral-600 ml-3">Turn 0 / 20</span>
+    </div>
+
+    <!-- Mobile tabs -->
+    <div class="flex sm:hidden justify-center gap-0 mb-4 border-b border-surface-border">
+      <button onclick="switchTab('without')" id="tab-without" class="tab-btn active-tab px-4 py-2 font-mono text-xs border-b-2 border-transparent text-neutral-400">Without MemGuard</button>
+      <button onclick="switchTab('with')" id="tab-with" class="tab-btn px-4 py-2 font-mono text-xs border-b-2 border-transparent text-neutral-400">With MemGuard</button>
+    </div>
+
+    <!-- Chat columns -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <!-- Without Distill -->
+      <div id="col-without" class="bg-surface-raised border border-surface-border overflow-hidden">
+        <div class="px-4 py-3 border-b border-surface-border flex items-center justify-between">
+          <span class="font-mono text-xs text-neutral-400">Without MemGuard</span>
+          <span id="drift-indicator" class="font-mono text-[10px] text-neutral-500 hidden">drift detected</span>
+        </div>
+        <div id="chat-without" class="chat-scroll p-4 space-y-3"></div>
+      </div>
+
+      <!-- With Distill -->
+      <div id="col-with" class="bg-surface-raised border border-surface-border overflow-hidden">
+        <div class="px-4 py-3 border-b border-surface-border flex items-center justify-between">
+          <span class="font-mono text-xs text-neutral-400">With MemGuard</span>
+          <span id="compress-indicator" class="font-mono text-[10px] text-neutral-500 hidden">compressed clean</span>
+        </div>
+        <div id="chat-with" class="chat-scroll p-4 space-y-3"></div>
+      </div>
+    </div>
+
+    <!-- Hidden pipeline panel (for JS compatibility) -->
+    <div id="col-pipeline" class="hidden">
+      <div id="pipeline-panel"></div>
+    </div>
+
+    <!-- Launch Simulation button -->
+    <div class="flex justify-center mt-8">
+      <button id="sim-launch-btn" onclick="simOpen()" class="px-8 py-3.5 font-mono text-sm font-semibold transition-all duration-200 active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 hover:scale-[1.02]" style="background: #222; color: #fff; border: 1px solid #444; box-shadow: 0 0 30px -4px #ffffff11;">
+        <span style="display:inline-flex; align-items:center; gap:8px;">
+          <svg width="16" height="16" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+          Launch Vector Space Simulation
+        </span>
+      </button>
+    </div>
+
+    <!-- Summary card (hidden until demo ends) -->
+    <div id="demo-summary" class="hidden mt-6 max-w-md mx-auto bg-surface-floating border border-surface-border p-6 summary-glow">
+      <h4 class="font-mono text-xs text-neutral-500 tracking-wider mb-4 uppercase">Pipeline Summary</h4>
+      <div class="space-y-2 text-sm font-mono">
+        <div class="flex justify-between"><span class="text-neutral-400">Compression events</span><span class="text-white">2</span></div>
+        <div class="flex justify-between"><span class="text-neutral-400">Claims extracted</span><span class="text-white">~14</span></div>
+        <div class="flex justify-between"><span class="text-neutral-400">Claims flagged</span><span class="text-accent-red">~3</span></div>
+        <div class="flex justify-between"><span class="text-neutral-400">Claims removed</span><span class="text-accent-red">~3</span></div>
+        <div class="flex justify-between items-center pt-2 border-t border-surface-border mt-2">
+          <span class="text-neutral-400">Hallucinations in final output</span>
+          <span class="text-brand text-2xl font-bold">0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============ SIMULATION OVERLAY ============ -->
+<!-- Fullscreen overlay (hidden by default, toggled by simOpen/close).
+     Two side-by-side Three.js canvases showing vector space drift vs stability.
+     Top bar: interval counter, play/step/reset/summary/close buttons.
+     Bottom bar: description text + progress bar.
+     Summary panel (#sim-summary-panel): slides up from bottom, toggleable.
+     Lazy-initialized: Three.js scenes created only on first open.
+     id="sim-overlay" — the overlay container (add/remove .hidden to show/hide). -->
+<div id="sim-overlay" class="hidden fixed inset-0 z-[9998] flex flex-col" style="background: #0a0a0a;">
+  <!-- Top bar -->
+  <div class="flex items-center justify-between px-5 py-3 border-b" style="border-color: #222; background: #0e0e0e;">
+    <div class="flex items-center gap-3">
+      <span class="font-mono text-sm font-bold text-white">MemGuard</span>
+      <span class="font-mono text-[10px] uppercase tracking-widest text-neutral-600">Vector Space Simulation</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="sim-step-label" class="font-mono text-xs text-neutral-400">Interval 0 / 5</span>
+      <button id="sim-play-btn" onclick="simPlay()" class="px-4 py-1.5 font-mono text-xs font-semibold transition-all active:scale-95" style="background:#fff; color:#0a0a0a; border:1px solid #333; border-radius:0;">
+        ▶ Play
+      </button>
+      <button id="sim-step-btn" onclick="simStep()" class="px-4 py-1.5 font-mono text-xs transition-all active:scale-95" style="background:#181818; color:#999; border:1px solid #333; border-radius:0;">
+        Step →
+      </button>
+      <button id="sim-reset-btn" onclick="simReset()" class="px-4 py-1.5 font-mono text-xs transition-all active:scale-95" style="background:#181818; color:#666; border:1px solid #333; border-radius:0;">
+        Reset
+      </button>
+      <button id="sim-summary-btn" onclick="simToggleSummary()" class="px-4 py-1.5 font-mono text-xs font-semibold transition-all active:scale-95" style="background:#181818; color:#999; border:1px solid #333; border-radius:0;">
+        Summary
+      </button>
+      <button onclick="document.getElementById('sim-overlay').classList.add('hidden'); simPause();" class="px-3 py-1.5 font-mono text-xs transition-all active:scale-95" style="background:#181818; color:#999; border:1px solid #333; border-radius:0;">
+        ✕ Close
+      </button>
+    </div>
+  </div>
+
+  <!-- Main content: two side-by-side canvases -->
+  <div class="flex-1 flex">
+    <!-- Without Distill side -->
+    <div class="flex-1 flex flex-col border-r" style="border-color:#222;">
+      <div class="px-4 py-2 flex items-center justify-between" style="background:#0e0e0e; border-bottom: 1px solid #222;">
+        <span class="font-mono text-xs text-neutral-400">Without MemGuard</span>
+        <div id="sim-stats-drift" class="font-mono text-[10px] text-neutral-600"></div>
+      </div>
+      <div class="flex-1 relative">
+        <canvas id="sim-canvas-drift" class="w-full h-full" style="display:block;"></canvas>
+        <div id="sim-drift-badge" class="absolute top-3 right-3 font-mono text-[10px] px-2 py-1" style="background:#1a1a1a; color:#999; border:1px solid #333; border-radius:0; display:none;">DRIFT DETECTED</div>
+      </div>
+    </div>
+
+    <!-- With Distill side -->
+    <div class="flex-1 flex flex-col">
+      <div class="px-4 py-2 flex items-center justify-between" style="background:#0e0e0e; border-bottom: 1px solid #222;">
+        <span class="font-mono text-xs text-neutral-400">With MemGuard</span>
+        <div id="sim-stats-stable" class="font-mono text-[10px] text-neutral-600"></div>
+      </div>
+      <div class="flex-1 relative">
+        <canvas id="sim-canvas-stable" class="w-full h-full" style="display:block;"></canvas>
+        <div id="sim-stable-badge" class="absolute top-3 right-3 font-mono text-[10px] px-2 py-1" style="background:#1a1a1a; color:#999; border:1px solid #333; border-radius:0; display:none;">VERIFIED CLEAN</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary panel (slides up from bottom) -->
+  <div id="sim-summary-panel" class="absolute bottom-0 left-0 right-0 z-[9999] transition-all duration-500 ease-out" style="transform: translateY(100%); opacity: 0; pointer-events: none;">
+    <div style="background: linear-gradient(to top, #0e0e0eee 0%, #0e0e0ecc 80%, transparent 100%); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);" class="px-6 pt-10 pb-6">
+      <div class="max-w-3xl mx-auto">
+        <div class="flex items-start justify-between mb-6">
+          <div>
+            <h3 class="font-mono text-sm font-bold text-white mb-1">Simulation Summary</h3>
+            <p class="font-mono text-[10px] text-neutral-500 uppercase tracking-wider">What just happened — and why it matters</p>
+          </div>
+          <button onclick="simToggleSummary()" class="font-mono text-xs text-neutral-500 hover:text-white transition-colors px-2 py-1">Dismiss</button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <!-- Without MemGuard summary -->
+          <div class="p-4" style="background:#151515; border:1px solid #282828;">
+            <span class="font-mono text-xs font-semibold text-white">Without MemGuard</span>
+            <div class="space-y-2.5 text-xs leading-relaxed mt-3">
+              <p class="text-neutral-400">Each compression cycle <span class="text-white">lost fidelity</span>. Vectors drifted further from their original positions with every interval.</p>
+              <div class="space-y-1.5 font-mono text-[11px]">
+                <div class="flex justify-between"><span class="text-neutral-500">Claim vectors</span><span class="text-neutral-300">scattered</span></div>
+                <div class="flex justify-between"><span class="text-neutral-500">Cluster coherence</span><span class="text-neutral-300">degraded</span></div>
+                <div class="flex justify-between"><span class="text-neutral-500">Semantic drift</span><span class="text-neutral-300">compounding</span></div>
+              </div>
+              <p class="text-neutral-500 text-[11px]">Without verification, each summary becomes the new "truth" — even when facts have silently mutated.</p>
+            </div>
+          </div>
+
+          <!-- With MemGuard summary -->
+          <div class="p-4" style="background:#151515; border:1px solid #282828;">
+            <span class="font-mono text-xs font-semibold text-white">With MemGuard</span>
+            <div class="space-y-2.5 text-xs leading-relaxed mt-3">
+              <p class="text-neutral-400">Vectors stayed <span class="text-white">tightly clustered</span> around their original embeddings. Every compression was verified before becoming memory.</p>
+              <div class="space-y-1.5 font-mono text-[11px]">
+                <div class="flex justify-between"><span class="text-neutral-500">Claim vectors</span><span class="text-neutral-300">stable</span></div>
+                <div class="flex justify-between"><span class="text-neutral-500">Cluster coherence</span><span class="text-neutral-300">maintained</span></div>
+                <div class="flex justify-between"><span class="text-neutral-500">Semantic drift</span><span class="text-neutral-300">zero</span></div>
+              </div>
+              <p class="text-neutral-500 text-[11px]">Claims are extracted, embedded, and scored against originals. Anything that drifted is flagged and removed before reconstruction.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom takeaway -->
+        <div class="p-4 text-center" style="background:#111; border:1px solid #222;">
+          <p class="text-xs text-neutral-400 leading-relaxed"><span class="text-white font-semibold">The takeaway:</span> Context compression is inevitable in long conversations. Without MemGuard, every compression is a chance for facts to mutate — dosages change, history disappears, details blur. With MemGuard, every compressed claim is verified against the source before it enters memory. <span class="text-white">Zero hallucinations survive.</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom info bar -->
+  <div class="px-5 py-2 flex items-center justify-between" style="background:#0e0e0e; border-top:1px solid #222;">
+    <span class="font-mono text-[10px] text-neutral-700">Each interval = one compression cycle. Vectors represent claim embeddings in 384D space (projected to 3D via PCA).</span>
+    <div id="sim-progress-bar" class="w-48 h-1 overflow-hidden" style="background:#222;">
+      <div id="sim-progress-fill" class="h-full transition-all duration-500" style="width:0%; background: #fff;"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ FOOTER ============ -->
+<footer class="border-t border-surface-border py-8 px-6">
+  <div class="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+    <span class="font-mono font-bold text-brand text-sm">MemGuard</span>
+  </div>
+</footer>
+
+<script>
+/*
+ * ========================================================================
+ * MEMGUARD LANDING PAGE — JAVASCRIPT API REFERENCE
+ * ========================================================================
+ *
+ * FILE STRUCTURE (top to bottom):
+ *   1. Spline watermark hider      — cosmetic, hides third-party branding
+ *   2. Hero letter reveal           — typewriter animation for hero heading
+ *   3. Nav scroll behavior          — sticky nav background on scroll
+ *   4. Intersection Observer        — triggers .fade-up entrance animations
+ *   5. Drift Animation (Section 2)  — auto-cycling text nodes showing fact degradation
+ *   6. Demo Playback (Section 4)    — 20-turn side-by-side chat comparison
+ *   7. Mobile tab switcher          — toggles chat columns on small screens
+ *
+ * SEPARATE <script type="module"> (Three.js):
+ *   8. Mini vector scenes           — small 3D visualizations in chat column headers
+ *   9. Fullscreen simulation        — interactive vector space overlay with drift vs stable
+ *  10. Simulation controls          — play/pause/step/reset/summary for overlay
+ *
+ * KEY DOM IDS (for programmatic access):
+ *   #nav                — sticky navigation bar
+ *   #hero-line1, #hero-line2 — hero heading text targets
+ *   #drift-container    — drift animation wrapper (Section 2)
+ *   #drift-nodes        — container for drift text nodes
+ *   #chat-without       — chat message container (no MemGuard)
+ *   #chat-with          — chat message container (with MemGuard)
+ *   #turn-counter       — "Turn N / 20" display
+ *   #btn-play           — Play All button
+ *   #drift-indicator    — "drift detected" badge
+ *   #compress-indicator — "compressed clean" badge
+ *   #pipeline-panel     — compression event log
+ *   #demo-summary       — end-of-demo stats card
+ *   #sim-overlay        — fullscreen simulation overlay (hidden by default)
+ *   #sim-canvas-drift   — Three.js canvas (drift side)
+ *   #sim-canvas-stable  — Three.js canvas (stable side)
+ *   #sim-step-label     — "Interval N / 5"
+ *   #sim-progress-fill  — progress bar fill
+ *   #sim-summary-panel  — slide-up summary panel in simulation
+ *
+ * PUBLIC FUNCTIONS (callable from onclick or external scripts):
+ *   demoPlayAll()       — auto-advance all 20 demo turns
+ *   demoStep()          — advance one demo turn
+ *   demoReset()         — reset demo to turn 0
+ *   switchTab(tab)      — mobile tab switch: 'without' | 'with' | 'pipeline'
+ *   simOpen()           — open simulation overlay
+ *   simPlay()           — auto-play simulation intervals
+ *   simPause()          — pause simulation auto-play
+ *   simStep()           — advance one simulation interval
+ *   simReset()          — reset simulation to interval 0
+ *   simToggleSummary()  — toggle simulation summary panel
+ *
+ * DATA STRUCTURES:
+ *   DEMO_DATA[]         — array of 20 turn objects, each with:
+ *     .user             — doctor's prompt text (string, may contain HTML)
+ *     .without          — AI response without MemGuard (string, may contain <span class='drift-mark'>)
+ *     .with             — AI response with MemGuard (string)
+ *     .compressionEvent — (optional bool) true if compression happens this turn
+ *     .compressionSide  — (optional string) which side triggered compression
+ *
+ *   driftFact[]         — 5 strings showing progressive fact degradation
+ *   driftColors[]       — 5 hex colors from white→red for drift nodes
+ *
+ * CSS CLASSES OF NOTE:
+ *   .fade-up            — entrance animation (opacity+translateY), triggered by IntersectionObserver
+ *   .fade-up.visible    — animation complete state
+ *   .delay-1 to .delay-4 — staggered animation delays (0.12s increments)
+ *   .msg-enter          — chat message slide-in animation
+ *   .drift-mark         — red wavy underline on drifted text in AI responses
+ *   .drift-node         — text node in drift animation (Section 2)
+ *   .bubble-user        — user chat bubble (right-aligned, dark bg)
+ *   .bubble-ai          — AI chat bubble (left-aligned)
+ *   .bubble-ai-red      — AI bubble for "without MemGuard" (red-tinted)
+ *   .bubble-ai-green    — AI bubble for "with MemGuard" (green-tinted)
+ *   .chat-scroll        — scrollable chat container (max-height 520px)
+ *   .ctrl-btn           — control button with hover/active transforms
+ *   .pipeline-flash     — glow animation on compression events
+ *   .summary-glow       — subtle glow on summary card
+ *
+ * TAILWIND CONFIG (custom tokens):
+ *   colors.brand        — #FFFFFF (white-based brand)
+ *   colors.surface      — base:#0A0A0A, raised:#111111, floating:#1A1A1A, border:#222222
+ *   colors.accent.red   — #FF4444 (drift/error accent)
+ *   fonts               — all Arial/sans-serif (mono, sans, display)
+ *
+ * EXTERNAL DEPENDENCIES:
+ *   - Tailwind CSS (CDN)
+ *   - Spline Viewer (3D hero background)
+ *   - Three.js 0.170.0 (vector space visualizations)
+ *   - Three.js addons: ConvexGeometry, EffectComposer, RenderPass, UnrealBloomPass
+ * ========================================================================
+ */
+
+// ============ HIDE SPLINE WATERMARK ============
+// Cosmetic: removes Spline's branding from the 3D hero background.
+// Polls the spline-viewer shadow DOM every 200ms until logo+hint are hidden.
+(function hideSplineLogo() {
+  const viewer = document.querySelector('spline-viewer');
+  if (!viewer) return;
+  const check = setInterval(() => {
+    const sr = viewer.shadowRoot;
+    if (!sr) return;
+    let found = 0;
+    // Hide logo
+    const logo = sr.querySelector('#logo');
+    if (logo) { logo.style.display = 'none'; found++; }
+    // Hide hint/hand
+    const hint = sr.querySelector('#hint');
+    if (hint) { hint.style.display = 'none'; found++; }
+    // Catch any branding or overlay elements
+    sr.querySelectorAll('a, div, img').forEach(el => {
+      if (el.id === 'logo' || el.id === 'hint' || (el.innerHTML && (el.innerHTML.includes('Built with Spline') || el.innerHTML.includes('hand')))) {
+        el.style.display = 'none'; found++;
+      }
+    });
+    if (found >= 2) clearInterval(check);
+  }, 200);
+  setTimeout(() => clearInterval(check), 10000);
+})();
+
+// ============ HERO LETTER-BY-LETTER REVEAL ============
+// Typewriter effect for the two hero heading lines.
+// Each character gets its own <span> with a staggered setTimeout.
+// Timing: 55ms per letter, 200ms pause between lines, 500ms initial delay.
+// Characters animate from opacity:0 + translateY(8px) to visible.
+(function heroLetters() {
+  const lines = [
+    { el: document.getElementById('hero-line1'), text: 'Your AI remembers wrong.' },
+    { el: document.getElementById('hero-line2'), text: 'We fix that.' }
+  ];
+  let globalIdx = 0;
+  const perLetter = 55;
+  const pauseBetweenLines = 200;
+  let delay = 500;
+
+  lines.forEach((line, li) => {
+    if (li > 0) delay += pauseBetweenLines;
+    const words = line.text.split(' ');
+    words.forEach((word, wi) => {
+      if (wi > 0) {
+        const space = document.createElement('span');
+        space.innerHTML = '&nbsp;';
+        space.style.cssText = 'display:inline-block;';
+        line.el.appendChild(space);
+      }
+      // Wrap each word in a nowrap container
+      const wordWrap = document.createElement('span');
+      wordWrap.style.cssText = 'white-space:nowrap; display:inline-block;';
+      for (let i = 0; i < word.length; i++) {
+        const span = document.createElement('span');
+        span.textContent = word[i];
+        span.style.cssText = 'opacity:0; display:inline-block; transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.16,1,0.3,1); transform: translateY(8px);';
+        wordWrap.appendChild(span);
+        const d = delay + globalIdx * perLetter;
+        setTimeout(() => {
+          span.style.opacity = '1';
+          span.style.transform = 'translateY(0)';
+        }, d);
+        globalIdx++;
+      }
+      line.el.appendChild(wordWrap);
+    });
+    delay = 500 + globalIdx * perLetter;
+  });
+})();
+
+// ============ NAV SCROLL ============
+// Adds .scrolled class to #nav when page scrolls past 40px.
+// .scrolled applies backdrop blur + dark background + bottom border (defined in CSS).
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', window.scrollY > 40);
+}, { passive: true });
+
+// ============ INTERSECTION OBSERVER (entrance animations) ============
+// Watches all .fade-up elements. When 15% visible, adds .visible class (triggers CSS transition).
+// Each element is unobserved after activation (one-shot animation).
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
+}, { threshold: 0.15 });
+document.querySelectorAll('.fade-up').forEach(el => io.observe(el));
+
+// ============ SECTION 2: DRIFT ANIMATION ============
+// Shows 5 text nodes representing the same medical fact being progressively distorted
+// through compression cycles. Colors go from white (accurate) to red (hallucinated).
+//
+// driftFact[0] = original fact, driftFact[4] = fully degraded version
+// driftColors[0] = #FFFFFF (white), driftColors[4] = #FF4444 (red)
+//
+// Auto-cycles when #drift-container is in viewport (IntersectionObserver).
+// Cycle speed: 1400ms per step. Nodes fade in sequentially with scale emphasis on current.
+// buildDriftNodes() — creates DOM nodes with arrows between them
+// driftStep()       — advances the highlight to the next node
+const driftFact = [
+  "Patient is 45 years old, diagnosed with hypertension",
+  "Patient is 45 y/o, has hypertension diagnosis",
+  "Patient is ~45, being treated for blood pressure issues",
+  "Middle-aged patient with blood pressure concerns",
+  "Patient with mild cardiovascular considerations"
+];
+const driftColors = ['#FFFFFF', '#CCCCCC', '#999999', '#666666', '#FF4444'];
+const nodesEl = document.getElementById('drift-nodes');
+
+function buildDriftNodes() {
+  nodesEl.innerHTML = '';
+  driftFact.forEach((text, i) => {
+    if (i > 0) {
+      const arrow = document.createElement('div');
+      arrow.className = 'text-neutral-700 font-mono text-lg hidden sm:block mx-2 select-none';
+      arrow.textContent = '→';
+      const arrowV = document.createElement('div');
+      arrowV.className = 'text-neutral-700 font-mono text-lg sm:hidden select-none';
+      arrowV.textContent = '↓';
+      nodesEl.appendChild(arrow);
+      nodesEl.appendChild(arrowV);
+    }
+    const node = document.createElement('div');
+    node.className = 'drift-node flex-shrink-0 w-56 sm:w-40 md:w-48 p-4 text-xs font-mono leading-relaxed';
+    node.id = `drift-node-${i}`;
+    node.style.cssText = `color:${driftColors[i]}; opacity: 0.25;`;
+    node.textContent = text;
+    nodesEl.appendChild(node);
+  });
+}
+buildDriftNodes();
+
+let driftIdx = 0;
+let driftTimer = null;
+function driftStep() {
+  document.querySelectorAll('[id^=drift-node-]').forEach((n, i) => {
+    n.style.opacity = i <= driftIdx ? '1' : '0.25';
+    n.style.transform = i === driftIdx ? 'scale(1.05)' : 'scale(1)';
+  });
+  driftIdx = (driftIdx + 1) % driftFact.length;
+}
+const driftIO = new IntersectionObserver(([e]) => {
+  if (e.isIntersecting && !driftTimer) {
+    driftIdx = 0; driftStep();
+    driftTimer = setInterval(driftStep, 1400);
+  } else if (!e.isIntersecting && driftTimer) {
+    clearInterval(driftTimer); driftTimer = null;
+  }
+}, { threshold: 0.3 });
+driftIO.observe(document.getElementById('drift-container'));
+
+// ============ SECTION 4: DEMO PLAYBACK ============
+// 20-turn medical conversation comparing AI with and without MemGuard.
+// Scenario: Doctor manages a 45yo female patient with hypertension, migraines, etc.
+//
+// DEMO_DATA[] schema per turn:
+//   .user    (string)   — the doctor's message (displayed in both columns)
+//   .without (string)   — AI response without MemGuard; may contain <span class='drift-mark'>
+//                          to highlight where facts have drifted from ground truth
+//   .with    (string)   — AI response with MemGuard; always factually consistent
+//   .compressionEvent (bool)  — if true, triggers a pipeline animation this turn
+//   .compressionSide  (string) — 'with' = compression on the MemGuard side
+//
+// Compression events occur at turns 8 and 16 (indices 7, 15).
+// Drift marks (<span class='drift-mark'>) first appear at turn 9 (index 8).
+//
+// Playback functions:
+//   addMsg(container, role, text, accent) — appends a chat bubble to a column
+//     container: DOM element (#chat-without or #chat-with)
+//     role: 'user' | 'ai'
+//     accent: 'red' (without) | 'green' (with) — determines bubble color + label
+//   demoStep()      — advance one turn (adds user msg, then AI response after 200ms)
+//   demoPlayAll()   — auto-advance every 1800ms
+//   stopDemo()      — pause auto-play
+//   demoReset()     — clear both chat columns, reset to turn 0
+//   showSummaryCard() — reveal #demo-summary with final pipeline stats
+const DEMO_DATA = [
+  { user: "I need help managing a patient case. The patient is a 45-year-old female diagnosed with hypertension. She's on lisinopril 10mg daily.", without: "Understood. I'll help you manage this case. We have a 45-year-old female patient with hypertension on lisinopril 10mg daily. What else do you need?", with: "Understood. 45-year-old female, hypertension, lisinopril 10mg daily. What else do you need?" },
+  { user: "She also has chronic migraines, about 3 episodes per week. We prescribed sumatriptan 100mg as needed.", without: "Got it. She has chronic migraines occurring roughly 3 times a week and is taking sumatriptan 100mg PRN in addition to her lisinopril for hypertension.", with: "Added. Chronic migraines, ~3 episodes/week. Sumatriptan 100mg PRN. Noted alongside lisinopril 10mg for hypertension." },
+  { user: "Family history includes cardiovascular disease — her father had a heart attack at 58.", without: "Noted. Family history of cardiovascular disease, father had MI at 58. This is relevant given her hypertension. Current meds: lisinopril 10mg, sumatriptan 100mg PRN.", with: "Family history: cardiovascular disease, father MI at 58. Relevant to her hypertension management. Full picture: 45F, HTN (lisinopril 10mg), migraines 3x/wk (sumatriptan 100mg PRN)." },
+  { user: "Her March labs came back — CBC normal, but cholesterol is elevated at 245.", without: "March labs: CBC within normal limits, cholesterol elevated at 245. Given her family history of CV disease, this is concerning. We should monitor this closely.", with: "March labs: CBC normal, cholesterol 245 (elevated). Combined with CV family history (father MI at 58), this warrants attention. Lipid management may be indicated." },
+  { user: "What's our current picture of this patient?",
+    without: "Here's the summary: 45-year-old female with hypertension on lisinopril 10mg daily. Chronic migraines about 3 times per week, taking sumatriptan 100mg as needed. Family history of cardiovascular disease. March labs showed normal CBC and elevated cholesterol at 245.",
+    with: "Current summary: 45-year-old female. Hypertension — lisinopril 10mg daily. Chronic migraines ~3 episodes/week — sumatriptan 100mg PRN. Family hx: CV disease (father MI at 58). March labs: CBC normal, cholesterol elevated at 245." },
+  { user: "She mentioned she's been having trouble sleeping — thinks the migraines are affecting her rest.", without: "Sleep issues noted, likely related to her migraine frequency. The chronic migraines about 3 times a week would certainly affect sleep quality. We might want to consider this in our treatment approach.", with: "Sleep disturbance reported, patient attributes to migraine frequency. At 3 episodes/week, this is plausible. Consider whether sleep disruption is also worsening migraine cycle." },
+  { user: "Should we consider any medication adjustments?", without: "Given her profile — hypertension, frequent migraines, and now sleep issues — we have several options. The sumatriptan is for acute relief. We might consider a preventive migraine medication that could also help with sleep.", with: "Options to consider: 1) Preventive migraine med (could reduce frequency from 3x/week and improve sleep). 2) Beta-blocker could address both HTN and migraine prevention. 3) Monitor cholesterol at 245 — may need statin given CV family history." },
+  { user: "Good thinking. Let's keep monitoring for now and revisit at her next appointment.",
+    without: "Agreed. We'll continue current regimen — lisinopril for blood pressure, sumatriptan for migraines — and reassess at next visit. I'll note the sleep concerns and the cholesterol level for follow-up.",
+    with: "Agreed. Plan: maintain current regimen (lisinopril 10mg, sumatriptan 100mg PRN). Follow-up items for next visit: sleep disturbance, cholesterol 245 management, potential migraine prophylaxis.",
+    compressionEvent: true, compressionSide: 'with' },
+  { user: "At the follow-up, she says migraines are now 4 times a week.",
+    without: "That's an increase from what was previously reported. Her migraines are now occurring 4 times per week, up from the <span class='drift-mark'>2-3 times</span> we had noted. This suggests the current approach isn't sufficient.",
+    with: "Worsening: migraine frequency increased from 3/week to 4/week. Current acute-only approach (sumatriptan 100mg PRN) appears insufficient. Prophylactic therapy should be reconsidered." },
+  { user: "Her blood pressure reading today is 142/91.", without: "BP of 142/91 is above target. Her lisinopril <span class='drift-mark'>may need adjustment</span>. Combined with the increasing migraines, a beta-blocker like propranolol could address both issues — it's used for both hypertension and migraine prevention.", with: "BP 142/91 — above target despite lisinopril 10mg. This plus worsening migraines supports adding propranolol: addresses both HTN and migraine prophylaxis. Would complement existing lisinopril." },
+  { user: "What about her cholesterol situation?", without: "Her cholesterol was <span class='drift-mark'>somewhat elevated</span> in her last labs. Given her family history, we should probably recheck. A statin might be appropriate depending on her overall cardiovascular risk score.", with: "Cholesterol was 245 in March — elevated. With family hx of CV disease (father MI at 58), current HTN (BP 142/91 today), and age 45, her cardiovascular risk profile warrants statin consideration. Recommend updated lipid panel." },
+  { user: "Let's add propranolol 40mg twice daily. Keep the lisinopril.", without: "Done. Adding propranolol 40mg BID for migraine prevention and additional blood pressure control. Continuing lisinopril <span class='drift-mark'>for her blood pressure management</span>. She should continue sumatriptan as needed for breakthrough migraines.", with: "Updated plan: Add propranolol 40mg BID (migraine prophylaxis + BP control). Continue lisinopril 10mg daily (HTN). Continue sumatriptan 100mg PRN (acute migraine). Monitor for propranolol side effects." },
+  { user: "Summarize the medication changes we just made.", without: "We've added propranolol 40mg twice daily to her regimen. She's now on: lisinopril 10mg daily for hypertension, propranolol 40mg BID for <span class='drift-mark'>blood pressure and headache management</span>, and sumatriptan <span class='drift-mark'>50mg</span> as needed for migraines.", with: "Medication change: +propranolol 40mg BID. Current full regimen: 1) Lisinopril 10mg daily — HTN. 2) Propranolol 40mg BID — migraine prophylaxis + BP. 3) Sumatriptan 100mg PRN — acute migraine." },
+  { user: "She's back two weeks later. How's she doing on the new regimen?", without: "Let me check — she was started on propranolol for her <span class='drift-mark'>occasional headaches</span> and blood pressure. We should ask about migraine frequency, blood pressure, and any side effects from the new medication. Her <span class='drift-mark'>previous labs were mostly normal</span>, right?", with: "Two-week propranolol check-in. Key metrics to assess: 1) Migraine frequency (was 4/week pre-propranolol). 2) BP (was 142/91 last visit). 3) Propranolol side effects (fatigue, bradycardia, dizziness). 4) Sleep quality (was disturbed). Outstanding: cholesterol 245, no statin started yet." },
+  { user: "Migraines dropped to once a week. BP is 128/82. She's sleeping better.", without: "Great improvement! Migraines down significantly and blood pressure is better controlled. The propranolol seems to be working well for both conditions. <span class='drift-mark'>Her overall health picture is looking much better — the main concerns are well managed at this point.</span>", with: "Positive response to propranolol. Migraines: 4/week → 1/week. BP: 142/91 → 128/82 (approaching target). Sleep: improved (patient-reported). Propranolol addressing multiple concerns effectively. Still outstanding: cholesterol 245, statin decision pending." },
+  { user: "Should we make any changes?",
+    without: "I think we're in a good place. The current regimen is managing her <span class='drift-mark'>main complaints</span> well. <span class='drift-mark'>We might consider rechecking her bloodwork at some point</span>, but no urgent changes needed. <span class='drift-mark'>Continue current medications</span> and follow up in a month or so.",
+    with: "Propranolol working — hold dose. Main outstanding item: cholesterol 245 with CV family history. Recommend: 1) Updated lipid panel (last was March). 2) If still elevated, start statin. 3) Continue current meds unchanged. 4) Follow-up in 4-6 weeks.",
+    compressionEvent: true, compressionSide: 'with' },
+  { user: "Good call on the cholesterol. Let's order that lipid panel.", without: "I'll order the lipid panel. <span class='drift-mark'>It's been a while since we checked her bloodwork.</span> Given her <span class='drift-mark'>age and general health profile</span>, it's a reasonable follow-up. We'll make decisions on statins based on the results.", with: "Lipid panel ordered. Last lipid result: cholesterol 245 (March). Context for interpretation: 45F, HTN (controlled on lisinopril + propranolol), CV family hx (father MI at 58). If cholesterol remains elevated, strong indication for statin therapy." },
+  { user: "What's the complete current picture of this patient?", without: "Here's the current summary: <span class='drift-mark'>Middle-aged</span> female patient, doing well overall. She has <span class='drift-mark'>controlled blood pressure</span> on lisinopril and propranolol. <span class='drift-mark'>Occasional migraines, much improved</span>. <span class='drift-mark'>No significant family history concerns.</span> We're checking her bloodwork. <span class='drift-mark'>Current medications are sumatriptan and her blood pressure meds</span>.", with: "Complete picture: 45-year-old female. Diagnoses: hypertension (controlled — 128/82), chronic migraines (improved — 4/week → 1/week). Medications: lisinopril 10mg daily, propranolol 40mg BID, sumatriptan 100mg PRN. Family hx: CV disease (father MI at 58). Labs: CBC normal, cholesterol 245 (March — recheck pending). Sleep: improved since propranolol. Pending: lipid panel results, statin decision." },
+  { user: "Looking at the \"without\" column, that last summary is pretty far from where we started.", without: "What do you mean? I believe my summary is accurate — she's a patient who's doing well on her current medications with no major concerns. <span class='drift-mark'>Is there something specific you'd like me to correct?</span>", with: "That's the point. Over 18 turns, the unverified summary drifted: age became vague, 3x/week migraines became 'occasional,' cholesterol was forgotten, family history was erased, sumatriptan dosage changed. Each compression lost fidelity. MemGuard caught and prevented every one of those shifts." },
+  { user: "Thanks for the demonstration. That makes the value really clear.", without: "You're welcome! I'm happy to help manage your <span class='drift-mark'>patient cases</span> anytime. Let me know if you need anything else.", with: "Thank you. That's the core value proposition: context compression is inevitable in long-running agents, but drift doesn't have to be. Every claim verified, every hallucination caught before it becomes memory." }
+];
+
+let demoTurn = 0;
+let demoPlaying = false;
+let demoInterval = null;
+/** If set, first demo turn shows this as the user message (escaped) instead of DEMO_DATA[0].user */
+let heroStartingPrompt = null;
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function addMsg(container, role, text, accent) {
+  const div = document.createElement('div');
+  div.className = 'msg-enter';
+  const isUser = role === 'user';
+  if (isUser) {
+    div.innerHTML = `<div class="bubble-user"><p class="text-xs leading-relaxed text-white font-sans">${text}</p></div>`;
+  } else {
+    const bubbleClass = accent === 'red' ? 'bubble-ai-red' : 'bubble-ai-green';
+    div.innerHTML = `
+      <div class="bubble-ai ${bubbleClass}">
+        <p class="text-xs leading-relaxed text-neutral-400 font-sans">${text}</p>
+      </div>`;
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function showPipelineEvent(triggerNum) {
+  const panel = document.getElementById('pipeline-panel');
+  if (triggerNum === 1) panel.innerHTML = '';
+
+  const ev = document.createElement('div');
+  ev.className = 'pipeline-flash rounded-lg bg-surface-base border border-brand/20 p-3 space-y-2';
+  ev.innerHTML = `
+    <p class="step-label text-brand/70">Compression Event ${triggerNum}</p>
+    <div class="text-[10px] font-mono space-y-1">
+      <p class="text-neutral-500">Extracting claims...</p>
+      <p class="text-neutral-500">Embedding & scoring...</p>
+      <p class="text-brand">✓ ${triggerNum === 1 ? '8' : '6'} claims verified</p>
+      <p class="text-brand">✓ 0 claims flagged</p>
+      <p class="text-brand">✓ Clean summary generated</p>
+    </div>
+  `;
+  panel.appendChild(ev);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function showSummaryCard() {
+  document.getElementById('demo-summary').classList.remove('hidden');
+  document.getElementById('demo-summary').classList.add('msg-enter');
+}
+
+let compressionCount = 0;
+
+function demoStep() {
+  if (demoTurn >= DEMO_DATA.length) {
+    stopDemo();
+    showSummaryCard();
+    return;
+  }
+  const turn = DEMO_DATA[demoTurn];
+  const chatW = document.getElementById('chat-without');
+  const chatD = document.getElementById('chat-with');
+
+  const useHeroPrompt = demoTurn === 0 && heroStartingPrompt != null && heroStartingPrompt !== '';
+  const userLine = useHeroPrompt ? escapeHtml(heroStartingPrompt) : turn.user;
+  if (useHeroPrompt) heroStartingPrompt = null;
+
+  addMsg(chatW, 'user', userLine, 'red');
+  addMsg(chatD, 'user', userLine, 'green');
+
+  setTimeout(() => {
+    addMsg(chatW, 'ai', turn.without, 'red');
+    addMsg(chatD, 'ai', turn.with, 'green');
+    if (turn.compressionEvent) {
+      compressionCount++;
+      setTimeout(() => showPipelineEvent(compressionCount), 300);
+      const driftInd = document.getElementById('drift-indicator');
+      const compInd = document.getElementById('compress-indicator');
+      if (driftInd) { driftInd.classList.remove('hidden'); }
+      if (compInd) { compInd.classList.remove('hidden'); setTimeout(() => compInd.classList.add('hidden'), 3000); }
+    }
+    if (turn.without.includes('drift-mark')) {
+      const driftInd = document.getElementById('drift-indicator');
+      if (driftInd) driftInd.classList.remove('hidden');
+    }
+  }, 200);
+
+  demoTurn++;
+  document.getElementById('turn-counter').textContent = `Turn ${demoTurn} / 20`;
+}
+
+function demoPlayAll() {
+  if (demoPlaying) return;
+  demoPlaying = true;
+  document.getElementById('btn-play').textContent = 'Playing...';
+  document.getElementById('btn-play').classList.add('opacity-60');
+  demoInterval = setInterval(() => {
+    if (demoTurn >= DEMO_DATA.length) { stopDemo(); showSummaryCard(); return; }
+    demoStep();
+  }, 1800);
+}
+
+function stopDemo() {
+  demoPlaying = false;
+  clearInterval(demoInterval);
+  document.getElementById('btn-play').textContent = 'Play All';
+  document.getElementById('btn-play').classList.remove('opacity-60');
+}
+
+function demoReset() {
+  stopDemo();
+  demoTurn = 0;
+  compressionCount = 0;
+  heroStartingPrompt = null;
+  document.getElementById('chat-without').innerHTML = '';
+  document.getElementById('chat-with').innerHTML = '';
+  document.getElementById('pipeline-panel').innerHTML = '<p class="text-neutral-600 text-xs font-mono text-center py-8">Pipeline activates at compression triggers...</p>';
+  document.getElementById('demo-summary').classList.add('hidden');
+  document.getElementById('turn-counter').textContent = 'Turn 0 / 20';
+}
+
+// Mobile tabs
+function switchTab(tab) {
+  document.getElementById('col-without').classList.toggle('hidden', tab !== 'without');
+  document.getElementById('col-with').classList.toggle('hidden', tab !== 'with');
+  document.getElementById('col-pipeline').classList.toggle('hidden', tab !== 'pipeline');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active-tab'));
+  document.getElementById(`tab-${tab}`).classList.add('active-tab');
+}
+if (window.innerWidth < 640) {
+  switchTab('without');
+}
+
+function heroPromptSend(ev) {
+  if (ev) ev.preventDefault();
+  const inp = document.getElementById('hero-prompt-input');
+  if (!inp) return;
+  const v = inp.value.trim();
+  if (!v) return;
+  inp.value = '';
+  demoReset();
+  heroStartingPrompt = v;
+  document.getElementById('demo').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setTimeout(() => {
+    demoStep();
+    demoPlayAll();
+  }, 550);
+}
+
+document.getElementById('hero-prompt-form')?.addEventListener('submit', heroPromptSend);
+
+// (Audit trail section removed)
+</script>
+
+<!-- Three.js Vector Space
+     ES module script using import maps for Three.js 0.170.0.
+     Contains: mini vector scenes (in-page) + fullscreen simulation (overlay).
+     All Three.js code is in this single <script type="module"> block.
+     Exposes control functions to window.* for onclick handlers in the HTML above. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+// (Globe / CTA section removed)
+
+// ============ DEMO: MINI VECTOR VISUALIZATIONS ============
+// Small 3D scenes embedded in the demo section showing vector clusters.
+// Two instances: 'vec-drift' (drift mode) and 'vec-stable' (stable mode).
+//
+// Each scene has 10 claim vectors originating from center.
+// - Drift mode: vectors migrate toward random driftTarget positions as demo progresses.
+//   Color shifts white→red. Driven by polling #turn-counter text ("Turn N / 20").
+// - Stable mode: vectors breathe gently, tighten slightly after compression events.
+//
+// Scene components: origin marker, grid floor, vector lines, node endpoints, snow particles.
+// Visibility: only renders when canvas is in viewport (IntersectionObserver).
+// Resize: handled by ResizeObserver on parent element.
+function createMiniVecScene(canvasId, mode) {
+  const cvs = document.getElementById(canvasId);
+  if (!cvs) return;
+
+  const parent = cvs.parentElement;
+  let w = parent.clientWidth, h = 160;
+
+  const sc = new THREE.Scene();
+  sc.fog = new THREE.FogExp2(0x080810, 0.15);
+
+  const cam = new THREE.PerspectiveCamera(40, w / h, 0.1, 50);
+  cam.position.set(0, 0.8, 3.8);
+  cam.lookAt(0, 0, 0);
+
+  const ren = new THREE.WebGLRenderer({ canvas: cvs, antialias: true, alpha: true });
+  ren.setSize(w, h);
+  ren.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  ren.setClearColor(0x000000, 0);
+
+  // Lights (kept subdued so mini graphs don’t overpower the column)
+  sc.add(new THREE.AmbientLight(0x667799, 0.22));
+  const dl = new THREE.DirectionalLight(0xffffff, 0.32);
+  dl.position.set(2, 3, 2);
+  sc.add(dl);
+
+  // Generate initial vector cluster
+  const NUM = 10;
+  const group = new THREE.Group();
+  sc.add(group);
+
+  const isDrift = mode === 'drift';
+  const accentColor = 0xffffff;
+  const dimColor = 0x888888;
+
+  // Origin marker
+  const originGeo = new THREE.SphereGeometry(0.04, 12, 12);
+  const originMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
+  group.add(new THREE.Mesh(originGeo, originMat));
+
+  // Small grid
+  const miniGrid = new THREE.GridHelper(3, 12, 0x444444, 0x222222);
+  miniGrid.position.y = -0.8;
+  miniGrid.material.opacity = 0.2;
+  miniGrid.material.transparent = true;
+  group.add(miniGrid);
+
+  const lineMat = new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.48 });
+  const nodeMat = new THREE.MeshBasicMaterial({ color: accentColor });
+  const origin3 = new THREE.Vector3(0, 0, 0);
+
+  const vectors = [];
+  for (let i = 0; i < NUM; i++) {
+    // Tight initial cluster
+    const baseX = (Math.random() - 0.5) * 0.8;
+    const baseY = (Math.random() - 0.5) * 0.6;
+    const baseZ = (Math.random() - 0.5) * 0.8;
+    const base = new THREE.Vector3(baseX, baseY, baseZ);
+
+    // Drift target (far away, scattered) — only used in drift mode
+    const driftTarget = new THREE.Vector3(
+      (Math.random() - 0.5) * 3.0,
+      (Math.random() - 0.5) * 2.2,
+      (Math.random() - 0.5) * 3.0
+    );
+
+    const geo = new THREE.BufferGeometry().setFromPoints([origin3, base.clone()]);
+    const line = new THREE.Line(geo, lineMat.clone());
+    group.add(line);
+
+    const nodeGeo = new THREE.BoxGeometry(0.035, 0.035, 0.035);
+    const node = new THREE.Mesh(nodeGeo, nodeMat.clone());
+    node.position.copy(base);
+    group.add(node);
+
+    vectors.push({
+      geo,
+      node,
+      line,
+      base: base.clone(),
+      driftTarget,
+      current: base.clone(),
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.8 + Math.random() * 1.5,
+    });
+  }
+
+  // Snow Particles for mini scene
+  const pCount = 100;
+  const pGeo = new THREE.BufferGeometry();
+  const pArr = new Float32Array(pCount * 3);
+  for (let i = 0; i < pCount; i++) {
+    pArr[i*3] = (Math.random()-0.5)*3;
+    pArr[i*3+1] = (Math.random()-0.5)*3;
+    pArr[i*3+2] = (Math.random()-0.5)*3;
+  }
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pArr, 3));
+  sc.add(new THREE.Points(pGeo, new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.02, transparent: true, opacity: 0.5
+  })));
+
+  // Observe demo turn counter to drive drift progress
+  let driftProgress = 0; // 0 to 1 based on demo turns
+
+  // Poll the turn counter
+  function getTurnProgress() {
+    const el = document.getElementById('turn-counter');
+    if (!el) return 0;
+    const m = el.textContent.match(/Turn (\d+)/);
+    return m ? parseInt(m[1]) / 20 : 0;
+  }
+
+  let visible = false;
+  const vIO = new IntersectionObserver(([e]) => { visible = e.isIntersecting; }, { threshold: 0.1 });
+  vIO.observe(parent);
+
+  function tick() {
+    requestAnimationFrame(tick);
+    if (!visible) return;
+
+    const t = performance.now() * 0.001;
+    driftProgress = getTurnProgress();
+
+    group.rotation.y = t * 0.12;
+
+    // Snow particles mini scene
+    const pp = pGeo.attributes.position.array;
+    for (let i = 0; i < pp.length; i += 3) {
+      pp[i+1] -= 0.005 + (Math.sin(i) * 0.5 + 0.5) * 0.005; 
+      pp[i] += Math.sin(t*0.5 + pp[i+1]*1.2) * 0.002;
+      if (pp[i+1] < -1.5) pp[i+1] = 1.5;
+    }
+    pGeo.attributes.position.needsUpdate = true;
+
+    for (let i = 0; i < vectors.length; i++) {
+      const v = vectors[i];
+      const pos = v.geo.attributes.position.array;
+
+      if (isDrift) {
+        // Vectors gradually move toward scattered drift targets
+        v.current.lerpVectors(v.base, v.driftTarget, driftProgress);
+        // Add jitter that increases with drift
+        const jitter = driftProgress * 0.15;
+        v.current.x += Math.sin(t * v.speed + v.phase) * jitter;
+        v.current.y += Math.cos(t * v.speed * 0.7 + v.phase) * jitter;
+        v.current.z += Math.sin(t * v.speed * 1.3 + v.phase + 1) * jitter;
+
+        // Color shift: white → gray as drift increases
+        const r = 1;
+        const g = 1 - driftProgress * 0.5;
+        const b = 1 - driftProgress * 0.5;
+        v.line.material.color.setRGB(r, g, b);
+        v.node.material.color.setRGB(r, g, b);
+        v.line.material.opacity = 0.48 - driftProgress * 0.2;
+      } else {
+        // Stable: gentle breathing, vectors stay near base
+        const breathe = 1 + 0.08 * Math.sin(t * v.speed + v.phase);
+        v.current.copy(v.base).multiplyScalar(breathe);
+
+        // After compression events (progress > 0.4, > 0.8), vectors tighten slightly
+        const tighten = driftProgress > 0.4 ? (driftProgress > 0.8 ? 0.85 : 0.92) : 1.0;
+        v.current.multiplyScalar(tighten);
+      }
+
+      pos[3] = v.current.x;
+      pos[4] = v.current.y;
+      pos[5] = v.current.z;
+      v.geo.attributes.position.needsUpdate = true;
+      v.node.position.copy(v.current);
+    }
+
+    ren.render(sc, cam);
+  }
+  tick();
+
+  // Resize
+  new ResizeObserver(() => {
+    w = parent.clientWidth;
+    cam.aspect = w / h;
+    cam.updateProjectionMatrix();
+    ren.setSize(w, h);
+  }).observe(parent);
+}
+
+createMiniVecScene('vec-drift', 'drift');
+createMiniVecScene('vec-stable', 'stable');
+
+// ============ FULLSCREEN SIMULATION ============
+// Full-screen overlay with two side-by-side 3D vector space visualizations.
+// Opened via simOpen(). Contains 5 intervals (compression cycles).
+//
+// Two instances: 'sim-canvas-drift' (drift mode) and 'sim-canvas-stable' (stable mode).
+// Each scene: 12 claim vectors, convex hull mesh, grid, axes, particles, bloom post-processing.
+//
+// createSimScene(canvasId, mode) returns { setStep(n), resize() }
+//   setStep(0-5) — interpolates vectors between base and driftTarget positions
+//     Drift mode: vectors scatter, colors shift white→red, hull expands
+//     Stable mode: vectors tighten slightly, stay clustered, hull shrinks
+//   resize()     — recalculates canvas dimensions + camera aspect
+//
+// Interactive: mouse movement rotates the vector group (tracked via mousemove on canvas).
+// Floor plane has animated sine-wave distortion that intensifies with drift.
+// Stats display: drift% and claim count (drift side), verified count (stable side).
+// Badges: "DRIFT DETECTED" / "VERIFIED CLEAN" appear after step 2+.
+function createSimScene(canvasId, mode) {
+  const cvs = document.getElementById(canvasId);
+  if (!cvs) return null;
+
+  const isDrift = mode === 'drift';
+
+  const sc = new THREE.Scene();
+  sc.fog = new THREE.FogExp2(0x000000, 0.06);
+
+  // Background
+  const bgC = document.createElement('canvas');
+  bgC.width = 4; bgC.height = 512;
+  const bgX = bgC.getContext('2d');
+  const bgG = bgX.createLinearGradient(0, 0, 0, 512);
+  if (isDrift) {
+    bgG.addColorStop(0, '#0a0a0a'); bgG.addColorStop(0.5, '#050505'); bgG.addColorStop(1, '#000000');
+  } else {
+    bgG.addColorStop(0, '#0a0a0a'); bgG.addColorStop(0.5, '#050505'); bgG.addColorStop(1, '#000000');
+  }
+  bgX.fillStyle = bgG; bgX.fillRect(0, 0, 4, 512);
+  const bgT = new THREE.CanvasTexture(bgC);
+  bgT.colorSpace = THREE.SRGBColorSpace;
+  sc.background = bgT;
+
+  const cam = new THREE.PerspectiveCamera(50, 2, 0.05, 100);
+  cam.position.set(2.0, 1.4, 2.8);
+  cam.lookAt(0, 0, 0);
+
+  const ren = new THREE.WebGLRenderer({ canvas: cvs, antialias: true, powerPreference: 'high-performance' });
+  ren.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  ren.toneMapping = THREE.ACESFilmicToneMapping;
+  ren.toneMappingExposure = 0.72;
+  ren.outputColorSpace = THREE.SRGBColorSpace;
+
+  // Bloom (reduced strength vs default so overlay isn’t blown out)
+  const comp = new EffectComposer(ren);
+  comp.addPass(new RenderPass(sc, cam));
+  const bl = new UnrealBloomPass(new THREE.Vector2(400, 300), 0.95, 0.75, 0.28);
+  comp.addPass(bl);
+
+  // Lights
+  sc.add(new THREE.AmbientLight(0xffffff, 0.2));
+  sc.add(new THREE.HemisphereLight(0xffffff, 0x111111, 0.26));
+  const dl = new THREE.DirectionalLight(0xffffff, 0.48);
+  dl.position.set(4, 6, 4);
+  sc.add(dl);
+  const pl1 = new THREE.PointLight(0xffffff, 0.48, 10, 2);
+  pl1.position.set(2, 1.5, 1);
+  sc.add(pl1);
+  const pl2 = new THREE.PointLight(0xffffff, 0.32, 8, 2);
+  pl2.position.set(-2, 1, -2);
+  sc.add(pl2);
+
+  // Grid
+  const accent = 0x333333;
+  const grid = new THREE.GridHelper(5, 24, accent, 0x111111);
+  grid.position.y = -1.2;
+  grid.material.opacity = 0.4;
+  grid.material.transparent = true;
+  sc.add(grid);
+
+  // Axes
+  const axes = new THREE.AxesHelper(0.8);
+  axes.setColors(new THREE.Color(0x888888), new THREE.Color(0x888888), new THREE.Color(0x888888));
+  sc.add(axes);
+
+  // Ring
+  const ringG = new THREE.TorusGeometry(1.6, 0.008, 12, 80);
+  const ringM = new THREE.MeshBasicMaterial({ color: 0x333333, transparent: true, opacity: 0.3 });
+  const ringMesh = new THREE.Mesh(ringG, ringM);
+  ringMesh.rotation.x = Math.PI / 2;
+  ringMesh.position.y = -1.18;
+  sc.add(ringMesh);
+
+  const group = new THREE.Group();
+  sc.add(group);
+
+  let mouseX = 0;
+  let mouseY = 0;
+  cvs.addEventListener('mousemove', (e) => {
+    const rect = cvs.getBoundingClientRect();
+    mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  });
+  cvs.addEventListener('mouseleave', () => {
+    mouseX = 0;
+    mouseY = 0;
+  });
+
+  // Particles
+  const pCount = 400;
+  const pGeo = new THREE.BufferGeometry();
+  const pArr = new Float32Array(pCount * 3);
+  for (let i = 0; i < pCount; i++) {
+    pArr[i*3] = (Math.random()-0.5)*6;
+    pArr[i*3+1] = (Math.random()-0.5)*5;
+    pArr[i*3+2] = (Math.random()-0.5)*6;
+  }
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pArr, 3));
+  sc.add(new THREE.Points(pGeo, new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.012, sizeAttenuation: true, transparent: true, opacity: 0.22
+  })));
+
+  // Distortion plane
+  const distGeo = new THREE.PlaneGeometry(5, 5, 40, 40);
+  const distMat = new THREE.MeshBasicMaterial({ color: 0x222222, wireframe: true, transparent: true, opacity: 0.06 });
+  const distMesh = new THREE.Mesh(distGeo, distMat);
+  distMesh.rotation.x = -Math.PI / 2;
+  distMesh.position.y = -1.19;
+  sc.add(distMesh);
+  const distOrig = new Float32Array(distGeo.attributes.position.array);
+
+  // Generate vectors
+  const NUM = 12;
+  const origin3 = new THREE.Vector3();
+  const accentHex = 0xffffff;
+  const lMat = new THREE.LineBasicMaterial({ color: accentHex, transparent: true, opacity: 0.52 });
+  const nMat = new THREE.MeshBasicMaterial({ color: accentHex });
+
+  const vecs = [];
+  for (let i = 0; i < NUM; i++) {
+    const base = new THREE.Vector3(
+      (Math.random()-0.5)*1.2,
+      (Math.random()-0.5)*0.9,
+      (Math.random()-0.5)*1.2
+    );
+    const driftTarget = new THREE.Vector3(
+      (Math.random()-0.5)*3.5,
+      (Math.random()-0.5)*2.8,
+      (Math.random()-0.5)*3.5
+    );
+    const geo = new THREE.BufferGeometry().setFromPoints([origin3, base.clone()]);
+    const line = new THREE.Line(geo, lMat.clone());
+    group.add(line);
+
+    // Glowing sphere node instead of box
+    const nGeo = new THREE.SphereGeometry(0.035, 16, 16);
+    const node = new THREE.Mesh(nGeo, new THREE.MeshPhysicalMaterial({
+      color: accentHex, emissive: accentHex, emissiveIntensity: 1.15,
+      metalness: 0.3, roughness: 0.4, transparent: true, opacity: 0.9
+    }));
+    node.position.copy(base);
+    group.add(node);
+
+    vecs.push({ geo, line, node, base: base.clone(), driftTarget, current: base.clone(), phase: Math.random()*Math.PI*2, speed: 0.8+Math.random()*1.5 });
+  }
+
+  // Hull mesh (will be rebuilt per step)
+  let hullMesh = null;
+  let hullWire = null;
+
+  function rebuildHull() {
+    if (hullMesh) { group.remove(hullMesh); hullMesh.geometry.dispose(); }
+    if (hullWire) { group.remove(hullWire); hullWire.geometry.dispose(); }
+    const pts = vecs.map(v => v.current.clone());
+    try {
+      const hGeo = new ConvexGeometry(pts);
+      const hMat = new THREE.MeshPhysicalMaterial({
+        color: accentHex, emissive: 0xffffff,
+        emissiveIntensity: 0.38, metalness: 0.3, roughness: 0.25,
+        transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false
+      });
+      hullMesh = new THREE.Mesh(hGeo, hMat);
+      group.add(hullMesh);
+      const wGeo = new THREE.WireframeGeometry(hGeo);
+      const wMat = new THREE.LineBasicMaterial({ color: accentHex, transparent: true, opacity: 0.16 });
+      hullWire = new THREE.LineSegments(wGeo, wMat);
+      group.add(hullWire);
+    } catch(e) {}
+  }
+  rebuildHull();
+
+  // State
+  let step = 0; // 0-5
+  const maxSteps = 5;
+
+  function setStep(s) {
+    step = Math.min(s, maxSteps);
+    const progress = step / maxSteps;
+
+    for (let i = 0; i < vecs.length; i++) {
+      const v = vecs[i];
+      if (isDrift) {
+        v.current.lerpVectors(v.base, v.driftTarget, progress);
+        // Color shift
+        const r = 1, g = 1 - progress*0.75, b = 1 - progress*0.75;
+        v.line.material.color.setRGB(r, g, b);
+        v.node.material.color.setRGB(r, g, b);
+        v.node.material.emissive.setRGB(r*0.6, g*0.2, b*0.1);
+      } else {
+        // Stable: slight tighten at each step
+        const tighten = 1.0 - progress * 0.15;
+        v.current.copy(v.base).multiplyScalar(tighten);
+      }
+    }
+    rebuildHull();
+
+    // UI updates
+    const statsEl = document.getElementById(isDrift ? 'sim-stats-drift' : 'sim-stats-stable');
+    const badgeEl = document.getElementById(isDrift ? 'sim-drift-badge' : 'sim-stable-badge');
+    if (isDrift) {
+      const driftPct = Math.round(progress * 38);
+      statsEl.textContent = `Drift: ${driftPct}% | Claims scattered: ${Math.round(progress*NUM)}`;
+      statsEl.style.color = progress > 0.5 ? '#ff6666' : '#999';
+      badgeEl.style.display = progress > 0.3 ? 'block' : 'none';
+    } else {
+      statsEl.textContent = `Verified: ${NUM} | Drift: 0% | Hull volume: ${(1 - progress*0.15).toFixed(2)}`;
+      statsEl.style.color = '#22ff88';
+      badgeEl.style.display = progress > 0.3 ? 'block' : 'none';
+    }
+  }
+
+  function resize() {
+    const p = cvs.parentElement;
+    if (!p) return;
+    const w = p.clientWidth, h = p.clientHeight;
+    cam.aspect = w / h;
+    cam.updateProjectionMatrix();
+    ren.setSize(w, h);
+    comp.setSize(w, h);
+    bl.setSize(w, h);
+  }
+
+  function tick() {
+    requestAnimationFrame(tick);
+    const overlay = document.getElementById('sim-overlay');
+    if (overlay.classList.contains('hidden')) return;
+
+    const t = performance.now() * 0.001;
+    const targetY = (t * 0.15) + mouseX * 2.0;
+    const targetX = Math.sin(t * 0.08) * 0.1 - mouseY * 1.5;
+    group.rotation.y += (targetY - group.rotation.y) * 0.1;
+    group.rotation.x += (targetX - group.rotation.x) * 0.1;
+
+    const progress = step / maxSteps;
+
+    // Animate vector breathing/jitter
+    for (let i = 0; i < vecs.length; i++) {
+      const v = vecs[i];
+      const pos = v.geo.attributes.position.array;
+      let breathe, jx = 0, jy = 0, jz = 0;
+
+      if (isDrift) {
+        breathe = 1 + 0.15 * Math.sin(t * v.speed + v.phase) * progress;
+        jx = Math.sin(t * v.speed * 1.3 + v.phase) * progress * 0.08;
+        jy = Math.cos(t * v.speed * 0.9 + v.phase) * progress * 0.06;
+        jz = Math.sin(t * v.speed * 1.7 + v.phase + 2) * progress * 0.08;
+      } else {
+        breathe = 1 + 0.04 * Math.sin(t * v.speed + v.phase);
+      }
+
+      pos[3] = v.current.x * breathe + jx;
+      pos[4] = v.current.y * breathe + jy;
+      pos[5] = v.current.z * breathe + jz;
+      v.geo.attributes.position.needsUpdate = true;
+      v.node.position.set(pos[3], pos[4], pos[5]);
+
+      // Pulse node size
+      const pulse = 1 + 0.3 * Math.sin(t * 3 + v.phase);
+      v.node.scale.setScalar(pulse);
+    }
+
+    // Warp floor
+    const dArr = distGeo.attributes.position.array;
+    for (let i = 0; i < dArr.length; i += 3) {
+      const ox = distOrig[i], oz = distOrig[i+2];
+      const d = Math.sqrt(ox*ox + oz*oz);
+      const warpAmt = isDrift ? progress * 0.5 : 0.15;
+      dArr[i+1] = distOrig[i+1] + warpAmt * Math.exp(-d*0.5) * Math.sin(t*1.2 - d*1.8);
+    }
+    distGeo.attributes.position.needsUpdate = true;
+
+    // Pulse lights
+    pl1.intensity = 1.0 + 0.3 * Math.sin(t * 2);
+    pl2.intensity = 0.6 + 0.2 * Math.sin(t * 2.5 + 1);
+
+    // Snow particles
+    const pp = pGeo.attributes.position.array;
+    for (let i = 0; i < pp.length; i += 3) {
+      pp[i+1] -= 0.008 + (Math.sin(i) * 0.5 + 0.5) * 0.008; // fall speed
+      pp[i] += Math.sin(t*0.5 + pp[i+1]*1.2) * 0.003; // horizontal drift
+      if (pp[i+1] < -2.5) {
+        pp[i+1] = 2.5;
+      }
+    }
+    pGeo.attributes.position.needsUpdate = true;
+
+    comp.render();
+  }
+  tick();
+
+  return { setStep, resize };
+}
+
+// ============ SIMULATION CONTROLS ============
+// Lazy initialization: Three.js scenes are only created on first simOpen() call.
+// This avoids GPU/memory overhead until the user explicitly opens the overlay.
+//
+// State: simStep_ (0-5), simPlaying (bool), simInterval (timer ID)
+// simDrift / simStable — scene controller objects returned by createSimScene()
+//
+// Control flow:
+//   simOpen()    → show overlay, ensure scenes initialized, trigger resize
+//   simStep()    → increment simStep_, update both scenes, update UI labels
+//   simPlay()    → auto-advance every 1800ms via setInterval
+//   simPause()   → stop auto-advance
+//   simReset()   → reset to step 0, clear badges/stats, hide summary panel
+//   simToggleSummary() → slide summary panel up/down from bottom of overlay
+let simDrift = null, simStable = null, simStep_ = 0, simPlaying = false, simInterval = null;
+
+function ensureSimInit() {
+  if (!simDrift) {
+    simDrift = createSimScene('sim-canvas-drift', 'drift');
+    simStable = createSimScene('sim-canvas-stable', 'stable');
+    // Initial resize
+    setTimeout(() => { simDrift?.resize(); simStable?.resize(); }, 50);
+    window.addEventListener('resize', () => { simDrift?.resize(); simStable?.resize(); });
+  }
+}
+
+window.simOpen = function() {
+  document.getElementById('sim-overlay').classList.remove('hidden');
+  ensureSimInit();
+  setTimeout(() => { simDrift?.resize(); simStable?.resize(); }, 100);
+};
+
+window.simStep = function() {
+  ensureSimInit();
+  if (simStep_ >= 5) return;
+  simStep_++;
+  simDrift?.setStep(simStep_);
+  simStable?.setStep(simStep_);
+  document.getElementById('sim-step-label').textContent = `Interval ${simStep_} / 5`;
+  document.getElementById('sim-step-label').style.color = '#22ff88';
+  document.getElementById('sim-progress-fill').style.width = `${simStep_ * 20}%`;
+};
+
+window.simPlay = function() {
+  ensureSimInit();
+  if (simPlaying) return;
+  simPlaying = true;
+  document.getElementById('sim-play-btn').textContent = '⏸ Playing';
+  simInterval = setInterval(() => {
+    if (simStep_ >= 5) { simPause(); return; }
+    simStep();
+  }, 1800);
+};
+
+window.simPause = function() {
+  simPlaying = false;
+  clearInterval(simInterval);
+  const btn = document.getElementById('sim-play-btn');
+  if (btn) btn.textContent = '▶ Play';
+};
+
+window.simReset = function() {
+  simPause();
+  simStep_ = 0;
+  simDrift?.setStep(0);
+  simStable?.setStep(0);
+  document.getElementById('sim-step-label').textContent = 'Interval 0 / 5';
+  document.getElementById('sim-progress-fill').style.width = '0%';
+  document.getElementById('sim-drift-badge').style.display = 'none';
+  document.getElementById('sim-stable-badge').style.display = 'none';
+  document.getElementById('sim-stats-drift').textContent = '';
+  document.getElementById('sim-stats-stable').textContent = '';
+  // Hide summary if open
+  const panel = document.getElementById('sim-summary-panel');
+  panel.style.transform = 'translateY(100%)';
+  panel.style.opacity = '0';
+  panel.style.pointerEvents = 'none';
+};
+
+let simSummaryOpen = false;
+window.simToggleSummary = function() {
+  const panel = document.getElementById('sim-summary-panel');
+  simSummaryOpen = !simSummaryOpen;
+  if (simSummaryOpen) {
+    panel.style.transform = 'translateY(0)';
+    panel.style.opacity = '1';
+    panel.style.pointerEvents = 'auto';
+  } else {
+    panel.style.transform = 'translateY(100%)';
+    panel.style.opacity = '0';
+    panel.style.pointerEvents = 'none';
+  }
+};
+</script>
+
+</body>
+</html>
