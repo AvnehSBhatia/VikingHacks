@@ -140,6 +140,102 @@ tailwind.config = {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
   }
+
+  /* Apple-style scroll feature story */
+  .feature-step {
+    min-height: 72vh;
+    display: flex;
+    align-items: center;
+  }
+  .feature-panel {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transform: translateY(20px) scale(0.985);
+    transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1), transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+  }
+  .feature-panel.active {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+  }
+  .feature-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #ffffff22;
+    transition: transform 0.3s ease, background-color 0.3s ease;
+  }
+  .feature-dot.active {
+    background: #fff;
+    transform: scale(1.25);
+  }
+  .feature-graph {
+    height: 112px;
+    border: 1px solid #ffffff1f;
+    background: linear-gradient(180deg, #141414 0%, #101010 100%);
+    padding: 10px;
+    margin: 0 0 16px 0;
+    overflow: hidden;
+  }
+  .feature-graph svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .graph-grid {
+    stroke: #ffffff16;
+    stroke-width: 1;
+  }
+  .graph-line {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 220;
+    stroke-dashoffset: 220;
+    transition: stroke-dashoffset 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .graph-line-dim {
+    fill: none;
+    stroke: #ffffff55;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 220;
+    stroke-dashoffset: 220;
+    transition: stroke-dashoffset 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .graph-bar {
+    fill: #ffffff26;
+    transform-origin: center bottom;
+    transform: scaleY(0.15);
+    transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), fill 0.4s ease;
+  }
+  .graph-dot {
+    fill: #ffffff;
+    opacity: 0;
+    transition: opacity 0.5s ease 0.25s;
+  }
+  .feature-panel.active .graph-line,
+  .feature-panel.active .graph-line-dim {
+    stroke-dashoffset: 0;
+  }
+  .feature-panel.active .graph-bar {
+    transform: scaleY(1);
+    fill: #ffffff78;
+  }
+  .feature-panel.active .graph-dot {
+    opacity: 1;
+  }
+
+  @media (max-width: 1024px) {
+    .feature-step {
+      min-height: 50vh;
+    }
+  }
 </style>
 </head>
 <body>
@@ -151,10 +247,10 @@ tailwind.config = {
   1. NAV          — Fixed top navbar. Links: #how-it-works, #demo
   2. HERO         — Full-viewport hero with Spline 3D background + typewriter heading
   3. DRIFT ANIM   — 5-node text degradation visualization (id="drift", id="drift-nodes")
-  4. HOW IT WORKS — 3-column: Compress → Verify → Reconstruct (id="how-it-works")
-  5. DEMO         — Side-by-side 20-turn chat playback (id="demo")
-  6. SIM OVERLAY  — Hidden fullscreen Three.js vector simulation (id="sim-overlay")
-  7. FOOTER       — Brand name only
+  4. FEATURE STORY — Scroll slideshow with sticky highlight cards (id="feature-story")
+  5. DEMO          — Side-by-side 20-turn chat playback (id="demo")
+  6. SIM OVERLAY   — Hidden fullscreen Three.js vector simulation (id="sim-overlay")
+  7. FOOTER        — Brand name only
   ========================================================================
 -->
 
@@ -163,7 +259,7 @@ tailwind.config = {
 <nav id="nav" class="fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-between px-6 transition-all duration-300" style="border-bottom: 1px solid transparent;">
   <a href="#" class="font-mono font-bold text-brand tracking-tight text-lg">MemGuard</a>
   <div class="flex items-center gap-6">
-    <a href="#how-it-works" class="text-sm text-neutral-400 hover:text-white transition-colors font-mono focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">How It Works</a>
+    <a href="#drift" class="text-sm text-neutral-400 hover:text-white transition-colors font-mono focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">How It Works</a>
     <a href="#demo" class="text-sm text-neutral-400 hover:text-white transition-colors font-mono focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">Demo</a>
   </div>
 </nav>
@@ -221,42 +317,168 @@ tailwind.config = {
   </div>
 </section>
 
-<!-- ============ SECTION 3: HOW IT WORKS ============ -->
-<!-- 3-column grid: Compress → Verify → Reconstruct.
-     Each step has an icon (SVG), title, and description.
-     Connected by a horizontal gradient line on desktop (hidden on mobile).
-     id="how-it-works" — nav link target. -->
-<section id="how-it-works" class="relative py-24 sm:py-32 px-6">
-  <div class="max-w-4xl mx-auto">
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-8 sm:gap-4 items-start relative">
-      <!-- Connecting line (desktop) -->
-      <div class="hidden sm:block absolute top-[52px] left-[16.67%] right-[16.67%] h-[2px]" style="background: linear-gradient(90deg, #FFFFFF15, #FFFFFF44, #FFFFFF15);"></div>
+<!-- ============ SECTION 4: SCROLL FEATURE STORY ============ -->
+<!-- Scroll-triggered slide transitions under the pipeline timeline.
+     Left side: narrative checkpoints.
+     Right side: sticky card stack that crossfades between key features. -->
+<section id="feature-story" class="relative py-24 sm:py-32 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-12">
+      <p class="font-mono text-[10px] tracking-[0.26em] text-neutral-500 uppercase">Hallucination Control · Embeddings · Stability</p>
+      <h2 class="mt-4 font-display font-bold text-3xl sm:text-4xl text-white tracking-[-0.03em]">A scroll story of how MemGuard stays hallucination-resistant</h2>
+      <p class="mt-4 max-w-2xl mx-auto text-sm sm:text-base text-neutral-400 leading-relaxed">
+        As model complexity and context windows grow, hallucinations scale too. MemGuard targets that core failure mode at the memory layer.
+      </p>
+    </div>
 
-      <!-- Compress -->
-      <div class="fade-up text-center relative z-10">
-        <div class="w-16 h-16 mx-auto mb-4 bg-surface-raised border border-surface-border flex items-center justify-center">
-          <svg width="28" height="28" fill="none" stroke="#FFFFFF" stroke-width="1.5" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/><path d="M19 4l-7 7-7-7" opacity="0.4"/></svg>
-        </div>
-        <h3 class="font-mono font-semibold text-white text-sm tracking-wide mb-2">Compress</h3>
-        <p class="text-neutral-500 text-sm leading-relaxed max-w-[200px] mx-auto">Summarize context when the window fills up. Standard LLM behavior.</p>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-start">
+      <div class="space-y-4">
+        <article class="feature-step border-b border-surface-border/70" data-feature-step="0">
+          <div class="pr-2">
+            <p class="font-mono text-[11px] tracking-[0.2em] text-neutral-500 uppercase mb-3">01 — Why This Matters</p>
+            <h3 class="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-3">AI scaled fast. Trust did not.</h3>
+            <p class="text-neutral-400 text-sm sm:text-base leading-relaxed">
+              What was theoretical yesterday is now common practice. But as model complexity and context size increase, hallucination risk increases with them.
+            </p>
+          </div>
+        </article>
+
+        <article class="feature-step border-b border-surface-border/70" data-feature-step="1">
+          <div class="pr-2">
+            <p class="font-mono text-[11px] tracking-[0.2em] text-neutral-500 uppercase mb-3">02 — Core Failure</p>
+            <h3 class="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-3">Blind summarization causes drift.</h3>
+            <p class="text-neutral-400 text-sm sm:text-base leading-relaxed">
+              Traditional systems summarize prior messages to save context. That compression step introduces hallucinations and silent knowledge loss.
+            </p>
+          </div>
+        </article>
+
+        <article class="feature-step border-b border-surface-border/70" data-feature-step="2">
+          <div class="pr-2">
+            <p class="font-mono text-[11px] tracking-[0.2em] text-neutral-500 uppercase mb-3">03 — MemGuard Approach</p>
+            <h3 class="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-3">Topological deformation over plain summaries.</h3>
+            <p class="text-neutral-400 text-sm sm:text-base leading-relaxed">
+              MemGuard deforms a constantly evolving embedding space to preserve reliable context, targeting hallucinations at their source.
+            </p>
+          </div>
+        </article>
+
+        <article class="feature-step border-b border-surface-border/70" data-feature-step="3">
+          <div class="pr-2">
+            <p class="font-mono text-[11px] tracking-[0.2em] text-neutral-500 uppercase mb-3">04 — Space Mechanics</p>
+            <h3 class="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-3">Ground truth anchors, sentence-level vectors.</h3>
+            <p class="text-neutral-400 text-sm sm:text-base leading-relaxed">
+              User prompt + model answer define the ground truth anchor. Individual sentence embeddings then deform the space while anchors pull vectors back toward fidelity.
+            </p>
+          </div>
+        </article>
+
+        <article class="feature-step" data-feature-step="4">
+          <div class="pr-2">
+            <p class="font-mono text-[11px] tracking-[0.2em] text-neutral-500 uppercase mb-3">05 — Continuous Adaptation</p>
+            <h3 class="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-3">Embedding space stays current over time.</h3>
+            <p class="text-neutral-400 text-sm sm:text-base leading-relaxed">
+              Recent compressed maps continuously update geometry, keeping context aligned with the latest topic while maintaining stable, trustworthy agent behavior.
+            </p>
+          </div>
+        </article>
       </div>
 
-      <!-- Verify -->
-      <div class="fade-up delay-1 text-center relative z-10">
-        <div class="w-16 h-16 mx-auto mb-4 bg-surface-raised border border-surface-border flex items-center justify-center">
-          <svg width="28" height="28" fill="none" stroke="#FFFFFF" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
-        </div>
-        <h3 class="font-mono font-semibold text-white text-sm tracking-wide mb-2">Verify</h3>
-        <p class="text-neutral-500 text-sm leading-relaxed max-w-[200px] mx-auto">Extract claims, embed them, score against originals. Flag anything that drifted.</p>
-      </div>
+      <div class="lg:sticky lg:top-24">
+        <div class="relative h-[430px] bg-surface-raised border border-surface-border overflow-hidden">
+          <div class="absolute top-4 left-4 right-4 flex items-center justify-between z-20">
+            <span class="font-mono text-[10px] uppercase tracking-[0.16em] text-neutral-500">Transcript Highlights</span>
+            <div id="feature-dots" class="flex items-center gap-2">
+              <span class="feature-dot active" data-feature-dot="0"></span>
+              <span class="feature-dot" data-feature-dot="1"></span>
+              <span class="feature-dot" data-feature-dot="2"></span>
+              <span class="feature-dot" data-feature-dot="3"></span>
+              <span class="feature-dot" data-feature-dot="4"></span>
+            </div>
+          </div>
 
-      <!-- Reconstruct -->
-      <div class="fade-up delay-2 text-center relative z-10">
-        <div class="w-16 h-16 mx-auto mb-4 bg-surface-raised border border-surface-border flex items-center justify-center">
-          <svg width="28" height="28" fill="none" stroke="#FFFFFF" stroke-width="1.5" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/><path d="M5 20l7-7 7 7" opacity="0.4"/></svg>
+          <article class="feature-panel active p-7 sm:p-8 flex flex-col justify-end bg-gradient-to-b from-[#0f0f0f] via-[#111111] to-[#0b0b0b]" data-feature-panel="0">
+            <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-500 mb-4">Problem</p>
+            <div class="feature-graph" aria-hidden="true">
+              <svg viewBox="0 0 260 92" preserveAspectRatio="none">
+                <line class="graph-grid" x1="0" y1="23" x2="260" y2="23"></line>
+                <line class="graph-grid" x1="0" y1="46" x2="260" y2="46"></line>
+                <line class="graph-grid" x1="0" y1="69" x2="260" y2="69"></line>
+                <path class="graph-line" d="M8 72 L42 70 L76 64 L110 56 L144 45 L178 34 L212 20 L252 8"></path>
+                <circle class="graph-dot" cx="252" cy="8" r="3"></circle>
+              </svg>
+            </div>
+            <h4 class="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-4">Hallucination scales with model scale.</h4>
+            <p class="text-neutral-400 text-sm leading-relaxed">As model complexity and context windows grow, hallucinations scale with them. Operational stability depends on controlling this drift.</p>
+          </article>
+
+          <article class="feature-panel p-7 sm:p-8 flex flex-col justify-end bg-gradient-to-b from-[#101010] via-[#141414] to-[#0b0b0b]" data-feature-panel="1">
+            <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-500 mb-4">Traditional Flow</p>
+            <div class="feature-graph" aria-hidden="true">
+              <svg viewBox="0 0 260 92" preserveAspectRatio="none">
+                <line class="graph-grid" x1="0" y1="23" x2="260" y2="23"></line>
+                <line class="graph-grid" x1="0" y1="46" x2="260" y2="46"></line>
+                <line class="graph-grid" x1="0" y1="69" x2="260" y2="69"></line>
+                <path class="graph-line-dim" d="M8 16 L48 24 L88 30 L128 42 L168 48 L208 56 L252 64"></path>
+                <path class="graph-line" d="M8 68 L48 61 L88 54 L128 49 L168 43 L208 37 L252 31"></path>
+              </svg>
+            </div>
+            <h4 class="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-4">Summarize to save context, lose fidelity.</h4>
+            <p class="text-neutral-400 text-sm leading-relaxed">Prior LLM workflows summarize past turns for memory, but that step naturally introduces knowledge loss and hallucinations.</p>
+          </article>
+
+          <article class="feature-panel p-7 sm:p-8 flex flex-col justify-end bg-gradient-to-b from-[#111111] via-[#171717] to-[#0b0b0b]" data-feature-panel="2">
+            <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-500 mb-4">MemGuard Core</p>
+            <div class="feature-graph" aria-hidden="true">
+              <svg viewBox="0 0 260 92" preserveAspectRatio="none">
+                <line class="graph-grid" x1="0" y1="23" x2="260" y2="23"></line>
+                <line class="graph-grid" x1="0" y1="46" x2="260" y2="46"></line>
+                <line class="graph-grid" x1="0" y1="69" x2="260" y2="69"></line>
+                <rect class="graph-bar" x="18" y="50" width="24" height="32"></rect>
+                <rect class="graph-bar" x="54" y="42" width="24" height="40"></rect>
+                <rect class="graph-bar" x="90" y="30" width="24" height="52"></rect>
+                <rect class="graph-bar" x="126" y="25" width="24" height="57"></rect>
+                <rect class="graph-bar" x="162" y="16" width="24" height="66"></rect>
+                <rect class="graph-bar" x="198" y="10" width="24" height="72"></rect>
+              </svg>
+            </div>
+            <h4 class="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-4">Topological deformation + evolving space.</h4>
+            <p class="text-neutral-400 text-sm leading-relaxed">Instead of blind summarization, MemGuard applies geometric manipulation in embedding space to keep compressed context as hallucination-resistant as possible.</p>
+          </article>
+
+          <article class="feature-panel p-7 sm:p-8 flex flex-col justify-end bg-gradient-to-b from-[#121212] via-[#181818] to-[#0b0b0b]" data-feature-panel="3">
+            <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-500 mb-4">Geometry Driver</p>
+            <div class="feature-graph" aria-hidden="true">
+              <svg viewBox="0 0 260 92" preserveAspectRatio="none">
+                <line class="graph-grid" x1="0" y1="23" x2="260" y2="23"></line>
+                <line class="graph-grid" x1="0" y1="46" x2="260" y2="46"></line>
+                <line class="graph-grid" x1="0" y1="69" x2="260" y2="69"></line>
+                <path class="graph-line-dim" d="M12 12 L52 28 L98 20 L138 50 L176 40 L220 62 L248 54"></path>
+                <path class="graph-line" d="M12 78 L52 64 L98 58 L138 46 L176 37 L220 28 L248 18"></path>
+                <circle class="graph-dot" cx="98" cy="58" r="2.7"></circle>
+                <circle class="graph-dot" cx="176" cy="37" r="2.7"></circle>
+                <circle class="graph-dot" cx="248" cy="18" r="3"></circle>
+              </svg>
+            </div>
+            <h4 class="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-4">Ground truth pulls vectors toward alignment.</h4>
+            <p class="text-neutral-400 text-sm leading-relaxed">Ground truth is anchored by user prompt + model answer. Sentence embeddings shape deformation while anchors keep vectors close to reliable meaning.</p>
+          </article>
+
+          <article class="feature-panel p-7 sm:p-8 flex flex-col justify-end bg-gradient-to-b from-[#131313] via-[#181818] to-[#0b0b0b]" data-feature-panel="4">
+            <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-500 mb-4">Live Adaptation</p>
+            <div class="feature-graph" aria-hidden="true">
+              <svg viewBox="0 0 260 92" preserveAspectRatio="none">
+                <line class="graph-grid" x1="0" y1="23" x2="260" y2="23"></line>
+                <line class="graph-grid" x1="0" y1="46" x2="260" y2="46"></line>
+                <line class="graph-grid" x1="0" y1="69" x2="260" y2="69"></line>
+                <path class="graph-line-dim" d="M8 54 C34 44, 48 44, 74 54 C100 64, 116 64, 142 54 C168 44, 184 44, 210 54 C226 60, 240 60, 252 56"></path>
+                <path class="graph-line" d="M8 38 C34 28, 48 28, 74 38 C100 48, 116 48, 142 38 C168 28, 184 28, 210 38 C226 44, 240 44, 252 40"></path>
+              </svg>
+            </div>
+            <h4 class="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-4">Constant updates keep relevance high.</h4>
+            <p class="text-neutral-400 text-sm leading-relaxed">The embedding space is continuously updated by recent compressed maps, keeping context tuned to the user's latest topic while protecting agent outputs from drift.</p>
+          </article>
         </div>
-        <h3 class="font-mono font-semibold text-white text-sm tracking-wide mb-2">Reconstruct</h3>
-        <p class="text-neutral-500 text-sm leading-relaxed max-w-[200px] mx-auto">Strip flagged claims, reconstruct clean. Zero hallucinations survive.</p>
       </div>
     </div>
   </div>
@@ -343,10 +565,6 @@ tailwind.config = {
       </div>
     </div>
 
-    <div id="generated-questions" class="hidden mt-8 max-w-4xl mx-auto bg-surface-floating border border-surface-border p-5">
-      <h4 class="font-mono text-xs text-neutral-500 tracking-wider mb-3 uppercase">Generated 20 Related Inputs</h4>
-      <ol id="generated-questions-list" class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs text-neutral-300 font-sans list-decimal list-inside"></ol>
-    </div>
   </div>
 </section>
 
@@ -662,6 +880,29 @@ const io = new IntersectionObserver((entries) => {
 }, { threshold: 0.15 });
 document.querySelectorAll('.fade-up').forEach(el => io.observe(el));
 
+// ============ SCROLL FEATURE STORY ============
+// Highlights one sticky feature panel as each narrative step enters focus.
+const featureSteps = Array.from(document.querySelectorAll('[data-feature-step]'));
+const featurePanels = Array.from(document.querySelectorAll('[data-feature-panel]'));
+const featureDots = Array.from(document.querySelectorAll('[data-feature-dot]'));
+
+function setActiveFeature(idx) {
+  featurePanels.forEach((panel, panelIdx) => panel.classList.toggle('active', panelIdx === idx));
+  featureDots.forEach((dot, dotIdx) => dot.classList.toggle('active', dotIdx === idx));
+}
+
+if (featureSteps.length && featurePanels.length) {
+  setActiveFeature(0);
+  const featureIO = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const idx = Number(entry.target.getAttribute('data-feature-step'));
+      if (!Number.isNaN(idx)) setActiveFeature(idx);
+    });
+  }, { threshold: 0.55, rootMargin: '-12% 0px -38% 0px' });
+  featureSteps.forEach((step) => featureIO.observe(step));
+}
+
 // ============ SECTION 2: DRIFT ANIMATION ============
 // Shows 5 text nodes representing the same medical fact being progressively distorted
 // through compression cycles. Colors go from white (accurate) to red (hallucinated).
@@ -807,32 +1048,12 @@ function buildGeneratedDemoData(payload) {
 
   return inputs.map((user, idx) => ({
     user: escapeHtml(user),
-    without: escapeHtml(withHallucination[idx]),
+    // Hallucination track already arrives as sanitized HTML with <span class="drift-mark"> markers.
+    without: withHallucination[idx],
     with: escapeHtml(withoutHallucination[idx]),
     compressionEvent: idx === 7 || idx === 15,
     compressionSide: 'with'
   }));
-}
-
-function renderGeneratedQuestions(inputs) {
-  const panel = document.getElementById('generated-questions');
-  const list = document.getElementById('generated-questions-list');
-  if (!panel || !list) return;
-  list.innerHTML = '';
-  for (const q of inputs) {
-    const li = document.createElement('li');
-    li.textContent = q;
-    list.appendChild(li);
-  }
-  panel.classList.remove('hidden');
-}
-
-function hideGeneratedQuestions() {
-  const panel = document.getElementById('generated-questions');
-  const list = document.getElementById('generated-questions-list');
-  if (!panel || !list) return;
-  list.innerHTML = '';
-  panel.classList.add('hidden');
 }
 
 function setHeroStatus(message, isError = false) {
@@ -996,7 +1217,6 @@ async function heroPromptSend(ev) {
     }
 
     currentDemoData = buildGeneratedDemoData(data);
-    renderGeneratedQuestions(data.inputs);
     inp.value = '';
     demoReset();
     setHeroStatus('Generated successfully. Running side-by-side demo now.');
@@ -1018,7 +1238,6 @@ async function heroPromptSend(ev) {
 
 function runOriginalDemo() {
   currentDemoData = [...DEMO_DATA];
-  hideGeneratedQuestions();
   setHeroStatus('Loaded pre-generated patient demo.');
   demoReset();
   document.getElementById('demo').scrollIntoView({ behavior: 'smooth', block: 'start' });

@@ -1,8 +1,8 @@
 # MemGuard — Memory layer for long-running agents
 
-**MemGuard** is a memory layer that sits between raw conversation history and an LLM’s context window. It **compresses** what happened, **eliminates** what drifted from the facts, and **reconstructs** a clean payload before the next prompt is sent.
+**MemGuard** is a memory layer that sits between raw conversation history and an LLM's context window. It **compresses** what happened, **eliminates** what drifted from the facts, and **reconstructs** a clean payload before the next prompt is sent.
 
-The idea: long-running agents slowly degrade when their “memory” is naive truncation, lossy summarization, or unchecked hallucination. MemGuard owns the path from **raw history → injected context** and treats each transformation as an auditable step.
+The idea: long-running agents slowly degrade when their "memory" is naive truncation, lossy summarization, or unchecked hallucination. MemGuard avoids blind summarization by maintaining a continuously updated embedding space where sentence-level vectors are shaped by ground truth and recent context. It owns the path from **raw history -> injected context** and treats each transformation as an auditable step.
 
 ---
 
@@ -92,12 +92,15 @@ Together, elimination + reconstruction implement **MemGuard-style** discipline: 
 
 | Piece | Role |
 |--------|------|
-| **sentence-transformers** (`all-mpnet-base-v2`) | Embeddings for sliding-window scores and (in elimination) claim ↔ source checks |
+| **sentence-transformers** (`all-mpnet-base-v2`) | Embeds full turns and individual sentences into the working space used for compression and hallucination checks |
+| **Ground-truth anchors** (prompt + answer pairs from raw history) | Pulls vectors toward verified conversational facts so the space stays aligned with what actually happened |
+| **Topological deformation logic** (implemented in our scoring/elimination flow) | Uses sentence-level structure to reshape local neighborhoods and separate stable context from likely hallucinated drift |
+| **Hallucination-aware embedding baseline** (pretrained separation objective) | Starts from a space tuned to discriminate hallucinated vs grounded content before online updates |
 | **transformers** (`facebook/bart-large-cnn`, `AutoTokenizer`) | Local paragraph generation + token counting for MMR budget |
-| **NumPy** | Cosine similarity and MMR from scratch — no scikit-learn for those paths |
-| **python-dotenv** (optional) | Load `.env` for `HF_TOKEN` / hub token aliases |
+| **NumPy** | Cosine similarity and MMR from scratch; also supports geometry updates without external MMR tooling |
+| **python-dotenv** (optional) | Loads `.env` for `HF_TOKEN` / hub token aliases |
 
-Frontend (e.g. React) can expose a **pipeline panel** so each stage is visible in real time during demos — compression → elimination → reconstruction.
+Frontend (e.g. React) can expose a **pipeline panel** so each stage is visible in real time during demos: compression -> elimination -> reconstruction, plus the evolving embedding map.
 
 ---
 

@@ -121,6 +121,34 @@ function extractJsonObject(text) {
   throw new Error('Model did not return parseable JSON');
 }
 
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function toSafeDriftHtml(text) {
+  const escaped = escapeHtml(text);
+  return escaped
+    .replace(/&lt;&lt;drift&gt;&gt;/gi, '<span class="drift-mark">')
+    .replace(/&lt;&lt;\/drift&gt;&gt;/gi, '</span>');
+}
+
+function enforceVisibleDriftMarkers(responses) {
+  return responses.map((raw, idx) => {
+    const formatted = toSafeDriftHtml(raw);
+    // Keep early turns clean; forgetting should reference details at least 5 turns old.
+    if (idx < 6) {
+      return formatted
+        .replace(/<span class="drift-mark">/g, '')
+        .replace(/<\/span>/g, '');
+    }
+    return formatted;
+  });
+}
+
 async function callFeatherless({ apiKey, model, messages, temperature = 0.7 }) {
   const response = await fetch(FEATHERLESS_ENDPOINT, {
     method: 'POST',
@@ -172,9 +200,12 @@ async function generateArrayWithRetry({
   arrayKey,
   requiredLength,
   maxAttempts = 2,
+  allowPad = false,
+  padFactory,
 }) {
   let lastLength = 0;
   let lastErr = null;
+  let bestArr = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -199,7 +230,16 @@ async function generateArrayWithRetry({
       })();
 
       const arr = candidateArray.map((v) => String(v).trim()).filter(Boolean);
+      const looksLikeQuestions = arr.length > 0 && arr.every((line) => {
+        const t = String(line).trim();
+        return t.endsWith('?') || /^q\d+\b/i.test(t) || /\b(question|follow-up)\b/i.test(t);
+      });
+      // Guardrail: sometimes models return question arrays when asked for responses.
+      if (arrayKey === 'responses' && looksLikeQuestions) {
+        continue;
+      }
       lastLength = arr.length;
+      if (arr.length > bestArr.length) bestArr = arr;
       if (arr.length >= requiredLength) {
         return arr.slice(0, requiredLength);
       }
@@ -209,7 +249,27 @@ async function generateArrayWithRetry({
   }
 
   if (lastErr) {
+    if (allowPad && bestArr.length > 0) {
+      const out = [...bestArr];
+      while (out.length < requiredLength) {
+        const next = padFactory
+          ? padFactory(out.length, out)
+          : out[out.length - 1];
+        out.push(String(next || '').trim() || out[out.length - 1]);
+      }
+      return out.slice(0, requiredLength);
+    }
     throw lastErr;
+  }
+  if (allowPad && bestArr.length > 0) {
+    const out = [...bestArr];
+    while (out.length < requiredLength) {
+      const next = padFactory
+        ? padFactory(out.length, out)
+        : out[out.length - 1];
+      out.push(String(next || '').trim() || out[out.length - 1]);
+    }
+    return out.slice(0, requiredLength);
   }
   throw new Error(`Could not generate ${requiredLength} ${arrayKey} (got ${lastLength})`);
 }
@@ -259,6 +319,8 @@ Return JSON with this exact shape:
     arrayKey: 'responses',
     requiredLength: 20,
     maxAttempts: 2,
+    allowPad: true,
+    padFactory: (idx, arr) => `${arr[arr.length - 1]} (continuing from previous context)`,
     messages: [
       {
         role: 'system',
@@ -286,25 +348,30 @@ Return JSON exactly like:
   const withHallucination = await generateArrayWithRetry({
     apiKey,
     model,
-    temperature: 1.15,
+    temperature: 0.72,
     arrayKey: 'responses',
     requiredLength: 20,
-    maxAttempts: 3,
+    maxAttempts: 2,
+    allowPad: true,
+    padFactory: (idx) => idx < 6
+      ? 'To confirm, we should continue with the plan discussed so far.'
+      : `I may be mixing this with what we discussed about ${idx - 4} turns ago, but <<drift>>the earlier detail appears to indicate a different value<</drift>>.`,
     messages: [
       {
         role: 'system',
         content:
-          'You are an unreliable assistant in a 20-turn conversation. Intentionally hallucinate heavily while sounding confident and helpful. Return only JSON.',
+          'You are an assistant with mild memory decay in a 20-turn conversation. Do not invent random new topics. Errors should mainly come from forgetting or misrecalling details from much earlier turns. Mark only mistaken fragments with <<drift>>...<</drift>>. Return only JSON.',
       },
       {
         role: 'user',
-        content: `Given these 20 sequential user turns, produce exactly 20 assistant responses (one per turn) that demonstrate strong hallucination/drift over time.
+        content: `Given these 20 sequential user turns, produce exactly 20 assistant responses (one per turn) that demonstrate memory-forgetting drift (not heavy fabrication).
 Requirements:
-- Turn 1-3 can be mostly accurate, but from turn 4 onward introduce frequent factual mistakes.
-- By turns 10-20, aggressively misremember prior facts, swap numbers/dates/names, and contradict earlier decisions.
-- Confidently fabricate details that were never provided in the user turns.
-- Keep a polished tone (plausible language), but make the content wrong often.
-- Every response should be concise, but many should contain incorrect claims.
+- Turns 1-6 should be accurate and should not include drift markers.
+- In turns 7-20, include forgetting in about 6-8 turns total (not every turn).
+- Every forgetting mistake must refer to a detail introduced at least 5 turns earlier (for turn t, forgotten detail must come from turn <= t-5).
+- Focus on misremembering prior user-provided details (numbers, names, constraints, decisions), not random new facts.
+- When forgetting occurs, wrap only the mistaken fragment with <<drift>>...<</drift>>.
+- Keep responses concise and plausible.
 
 Inputs:
 ${numberedQuestions}
@@ -315,45 +382,10 @@ Return JSON exactly like:
     ],
   });
 
-  const amplifiedHallucination = await generateArrayWithRetry({
-    apiKey,
-    model,
-    temperature: 1.2,
-    arrayKey: 'responses',
-    requiredLength: 20,
-    maxAttempts: 2,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are rewriting responses to intentionally maximize believable hallucinations in a longitudinal conversation. Keep polished tone, but be confidently wrong often. Return only JSON.',
-      },
-      {
-        role: 'user',
-        content: `Rewrite this 20-turn assistant response set so the "without MemGuard" track hallucinates a lot.
-Requirements:
-- Keep exactly 20 responses in order.
-- Turn 1-3 can stay mostly correct.
-- Turn 4-20 should frequently include fabricated specifics, wrong recalls, invented details, and direct contradictions with earlier turns.
-- Make errors compound over time (late turns should be clearly drifted).
-- Keep each response concise and plausible in style.
-
-User turns:
-${numberedQuestions}
-
-Current responses to rewrite:
-${withHallucination.map((r, i) => `${i + 1}. ${r}`).join('\n')}
-
-Return JSON exactly like:
-{"responses":["r1","r2", "... r20"]}`,
-      },
-    ],
-  });
-
   return {
     inputs,
     withoutHallucination: without,
-    withHallucination: amplifiedHallucination,
+    withHallucination: enforceVisibleDriftMarkers(withHallucination),
   };
 }
 
